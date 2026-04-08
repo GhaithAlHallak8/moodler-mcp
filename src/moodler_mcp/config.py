@@ -1,6 +1,6 @@
 import os
 
-MOODLE_URL = os.environ.get("MOODLE_URL", "https://mylms.ajman.ac.ae")
+MOODLE_URL = os.environ.get("MOODLE_URL")
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
