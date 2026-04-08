@@ -1,0 +1,20 @@
+[project]
+name = "moodler-mcp"
+version = "0.1.0"
+description = "A Moodle MCP server for interacting with Moodle LMS via AI assistants"
+readme = "README.md"
+authors = [
+    { name = "Ghaith AlHallak", email = "ghaith.alhallak5@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "httpx>=0.28.1",
+    "mcp[cli]>=1.27.0",
+    "playwright>=1.58.0",
+    "pymupdf>=1.27.2.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.9,<0.11.0"]
+build-backend = "uv_build"
