@@ -1,8 +1,8 @@
 import json
 from datetime import datetime, timezone
 
-from moodler_mcp.client import call_moodle, download_file, fetch_page
-from moodler_mcp.scraper import scrape_course_contents
+from moodler_mcp.client import download_file, fetch_page
+from moodler_mcp.moodle_api import get_course_sections, list_enrolled_courses
 from moodler_mcp.server import mcp
 
 
@@ -33,8 +33,7 @@ async def list_courses(classification: str = "all", limit: int = 50) -> str:
         limit: Max number of courses to return (max 50)
     """
     limit = min(limit, 50)
-    data = await call_moodle(
-        "core_course_get_enrolled_courses_by_timeline_classification",
+    data = await list_enrolled_courses(
         classification=classification,
         limit=limit,
     )
@@ -49,7 +48,7 @@ async def get_course_contents(course_id: int) -> str:
     Args:
         course_id: The Moodle course ID
     """
-    sections = await scrape_course_contents(course_id)
+    sections = await get_course_sections(course_id=course_id)
     return json.dumps(sections, indent=2)
 
 
