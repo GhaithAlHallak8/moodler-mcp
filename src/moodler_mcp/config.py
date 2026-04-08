@@ -9,3 +9,7 @@ USER_AGENT = (
 
 STATE_DIR = os.path.expanduser("~/.moodler-mcp")
 STATE_FILE = os.path.join(STATE_DIR, "browser_state.json")
+
+# Cache
+CACHE_DB = os.path.join(STATE_DIR, "cache.db")
+CACHE_DISABLED = bool(os.environ.get("MOODLER_CACHE_DISABLED"))
