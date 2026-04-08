@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import functools
 import json
 import logging
 import os
 import pickle
 import sqlite3
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from moodler_mcp.config import CACHE_DB, CACHE_DISABLED, STATE_DIR
@@ -100,3 +103,32 @@ def clear(pattern: str | None = None) -> int:
     except sqlite3.Error as e:
         log.warning("cache clear failed (pattern=%r): %s", pattern, e)
         return 0
+
+
+def cached(ttl: int) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
+    """Decorator: cache the result of an async, kwargs-only function.
+
+    The wrapped function MUST be called with keyword arguments only —
+    positional args would produce nondeterministic cache keys. Calling
+    the wrapped function with positional args raises TypeError.
+
+    Exceptions from the wrapped function are NOT cached. A failing call
+    leaves the cache untouched, so session-expiry retries in client.py
+    transparently replace a failure with fresh data on the next call.
+    """
+    def decorator(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+        @functools.wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if args:
+                raise TypeError(
+                    f"{fn.__name__} is @cached and must be called with keyword args only"
+                )
+            key = make_key(fn.__name__, kwargs)
+            hit = await asyncio.to_thread(get, key)
+            if hit is not None:
+                return hit
+            result = await fn(**kwargs)
+            await asyncio.to_thread(set, key, result, ttl)
+            return result
+        return wrapper
+    return decorator
