@@ -1,6 +1,6 @@
 import json
 
-from moodler_mcp.client import call_moodle
+from moodler_mcp.moodle_api import search_course_users
 from moodler_mcp.server import mcp
 
 
@@ -12,12 +12,9 @@ async def search_students(course_id: int, query: str = "") -> str:
         course_id: The Moodle course ID
         query: Search query (name or email). Empty string returns all.
     """
-    data = await call_moodle(
-        "core_grades_get_enrolled_users_for_search_widget",
-        courseid=course_id,
-        actionbaseurl="",
-        groupid=0,
-        search=query,
+    data = await search_course_users(
+        course_id=course_id,
+        query=query,
     )
     users = []
     for u in data.get("users", []):
