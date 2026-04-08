@@ -4,7 +4,15 @@ from datetime import datetime, timezone
 
 from bs4 import BeautifulSoup
 
-from moodler_mcp.client import call_moodle, fetch_page
+from moodler_mcp.moodle_api import (
+    get_assign_participant,
+    get_assign_submission_status,
+    get_assign_view_html,
+    get_course_module,
+    get_events_by_course,
+    get_events_by_timesort,
+    list_assign_participants,
+)
 from moodler_mcp.server import mcp
 
 
@@ -19,9 +27,8 @@ async def get_course_deadlines(course_id: int, include_past: bool = True) -> str
         include_past: If True, include past deadlines. If False, only future.
     """
     timefrom = 1 if include_past else int(time.time())
-    data = await call_moodle(
-        "core_calendar_get_action_events_by_course",
-        courseid=course_id,
+    data = await get_events_by_course(
+        course_id=course_id,
         timesortfrom=timefrom,
     )
     events = []
@@ -51,8 +58,7 @@ async def get_upcoming_deadlines(limit: int = 20) -> str:
         limit: Max number of events (max 50)
     """
     limit = min(limit, 50)
-    data = await call_moodle(
-        "core_calendar_get_action_events_by_timesort",
+    data = await get_events_by_timesort(
         timesortfrom=int(time.time()),
         limitnum=limit,
     )
@@ -86,11 +92,10 @@ async def get_assignment_participants(
         group_id: Group ID to filter by (0 for all)
         filter_text: Filter participants by name
     """
-    data = await call_moodle(
-        "mod_assign_list_participants",
-        assignid=assign_id,
-        groupid=group_id,
-        filter=filter_text,
+    data = await list_assign_participants(
+        assign_id=assign_id,
+        group_id=group_id,
+        filter_text=filter_text,
     )
     participants = []
     if isinstance(data, list):
@@ -117,10 +122,9 @@ async def get_assignment_participant_detail(
         assign_id: The assignment instance ID
         user_id: The student's user ID
     """
-    data = await call_moodle(
-        "mod_assign_get_participant",
-        assignid=assign_id,
-        userid=user_id,
+    data = await get_assign_participant(
+        assign_id=assign_id,
+        user_id=user_id,
     )
     return json.dumps(data, indent=2)
 
@@ -161,7 +165,7 @@ async def get_assignment_feedback(cmid: int) -> str:
     Args:
         cmid: The course module id (the `id` in the assignment view URL)
     """
-    cm = await call_moodle("core_course_get_course_module", cmid=cmid)
+    cm = await get_course_module(cmid=cmid)
     cm_info = cm.get("cm", {}) if isinstance(cm, dict) else {}
     assign_id = cm_info.get("instance")
     course_id = cm_info.get("course")
@@ -180,9 +184,7 @@ async def get_assignment_feedback(cmid: int) -> str:
     }
 
     try:
-        status = await call_moodle(
-            "mod_assign_get_submission_status", assignid=assign_id
-        )
+        status = await get_assign_submission_status(assign_id=assign_id)
         last = status.get("lastattempt", {}) or {}
         submission = last.get("submission", {}) or {}
         feedback = status.get("feedback", {}) or {}
@@ -211,7 +213,7 @@ async def get_assignment_feedback(cmid: int) -> str:
         result["web_service_error"] = str(e)
 
     try:
-        html = await fetch_page(f"/mod/assign/view.php?id={cmid}")
+        html = await get_assign_view_html(cmid=cmid)
         soup = BeautifulSoup(html, "html.parser")
         table = soup.select_one("table.generaltable") or soup.select_one(
             ".submissionstatustable"
