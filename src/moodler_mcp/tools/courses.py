@@ -133,9 +133,12 @@ def _file_to_content(filepath: str, pages: str | None = None):
         if len(text) > MAX_TEXT_BYTES:
             text = text[:MAX_TEXT_BYTES]
             truncated = True
-        header = f"# {filename}"
+        header = f"# {filename}\nLocal path: {filepath}"
         if truncated:
-            header += f"\n[TRUNCATED — showing first {MAX_TEXT_BYTES} of {size} bytes]"
+            header += (
+                f"\n[TRUNCATED — showing first {MAX_TEXT_BYTES} of {size} bytes. "
+                f"Use your host's local file reader on the path above for the full file.]"
+            )
         return TextContent(type="text", text=f"{header}\n\n{text}")
 
     if ext in _IMAGE_MIME:
@@ -156,10 +159,13 @@ def _file_to_content(filepath: str, pages: str | None = None):
 
         if pages:
             page_indices = _parse_pages(pages, total_pages)
-            header = f"# {filename} ({total_pages} pages, rendering: {pages})"
+            header = (
+                f"# {filename} ({total_pages} pages, rendering: {pages})\n"
+                f"Local path: {filepath}"
+            )
         else:
             page_indices = list(range(min(total_pages, MAX_PDF_PAGES)))
-            header = f"# {filename} ({total_pages} pages)"
+            header = f"# {filename} ({total_pages} pages)\nLocal path: {filepath}"
             if len(page_indices) < total_pages:
                 header += (
                     f"\n[TRUNCATED — rendering first {len(page_indices)} of {total_pages} pages. "
