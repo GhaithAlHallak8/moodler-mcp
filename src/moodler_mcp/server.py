@@ -36,3 +36,4 @@ import moodler_mcp.tools.courses  # noqa: F401, E402
 import moodler_mcp.tools.students  # noqa: F401, E402
 import moodler_mcp.tools.assignments  # noqa: F401, E402
 import moodler_mcp.tools.grades  # noqa: F401, E402
+import moodler_mcp.tools.cache  # noqa: F401, E402
