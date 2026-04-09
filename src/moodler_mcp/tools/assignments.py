@@ -1,6 +1,6 @@
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from bs4 import BeautifulSoup
 
@@ -38,12 +38,12 @@ async def get_course_deadlines(course_id: int, include_past: bool = True) -> str
             "name": e.get("name", ""),
             "type": e.get("modulename", ""),
             "instance_id": e.get("instance"),
-            "course_id": e.get("course", {}).get("id") if isinstance(e.get("course"), dict) else e.get("courseid"),
+            "course_id": e.get("course", {}).get("id")
+            if isinstance(e.get("course"), dict)
+            else e.get("courseid"),
         }
         if e.get("timestart"):
-            event["due_date"] = datetime.fromtimestamp(
-                e["timestart"], tz=timezone.utc
-            ).isoformat()
+            event["due_date"] = datetime.fromtimestamp(e["timestart"], tz=UTC).isoformat()
         if e.get("url"):
             event["url"] = e["url"]
         events.append(event)
@@ -67,12 +67,12 @@ async def get_upcoming_deadlines(limit: int = 20) -> str:
         event = {
             "name": e.get("name", ""),
             "type": e.get("modulename", ""),
-            "course": e.get("course", {}).get("fullname", "") if isinstance(e.get("course"), dict) else "",
+            "course": e.get("course", {}).get("fullname", "")
+            if isinstance(e.get("course"), dict)
+            else "",
         }
         if e.get("timestart"):
-            event["due_date"] = datetime.fromtimestamp(
-                e["timestart"], tz=timezone.utc
-            ).isoformat()
+            event["due_date"] = datetime.fromtimestamp(e["timestart"], tz=UTC).isoformat()
         if e.get("url"):
             event["url"] = e["url"]
         events.append(event)
@@ -100,22 +100,20 @@ async def get_assignment_participants(
     participants = []
     if isinstance(data, list):
         for p in data:
-            participants.append({
-                "id": p.get("id"),
-                "fullname": p.get("fullname", ""),
-                "submitted": p.get("submitted", False),
-                "requiregrading": p.get("requiregrading", False),
-                "groupname": p.get("groupname", ""),
-            })
-    return json.dumps(
-        {"total": len(participants), "participants": participants}, indent=2
-    )
+            participants.append(
+                {
+                    "id": p.get("id"),
+                    "fullname": p.get("fullname", ""),
+                    "submitted": p.get("submitted", False),
+                    "requiregrading": p.get("requiregrading", False),
+                    "groupname": p.get("groupname", ""),
+                }
+            )
+    return json.dumps({"total": len(participants), "participants": participants}, indent=2)
 
 
 @mcp.tool()
-async def get_assignment_participant_detail(
-    assign_id: int, user_id: int
-) -> str:
+async def get_assignment_participant_detail(assign_id: int, user_id: int) -> str:
     """Get detailed submission info for a student on a specific assignment.
 
     Args:
@@ -143,12 +141,14 @@ def _extract_plugin_content(plugins: list) -> dict:
         files: list[dict] = []
         for area in plugin.get("fileareas", []) or []:
             for f in area.get("files", []) or []:
-                files.append({
-                    "filename": f.get("filename", ""),
-                    "url": f.get("fileurl", ""),
-                    "size": f.get("filesize"),
-                    "mimetype": f.get("mimetype", ""),
-                })
+                files.append(
+                    {
+                        "filename": f.get("filename", ""),
+                        "url": f.get("fileurl", ""),
+                        "size": f.get("filesize"),
+                        "mimetype": f.get("mimetype", ""),
+                    }
+                )
         if files:
             out[f"{ptype}_files"] = files
     return out
@@ -215,9 +215,7 @@ async def get_assignment_feedback(cmid: int) -> str:
     try:
         html = await get_assign_view_html(cmid=cmid)
         soup = BeautifulSoup(html, "html.parser")
-        table = soup.select_one("table.generaltable") or soup.select_one(
-            ".submissionstatustable"
-        )
+        table = soup.select_one("table.generaltable") or soup.select_one(".submissionstatustable")
         if table:
             rows = {}
             for tr in table.select("tr"):

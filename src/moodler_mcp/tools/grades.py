@@ -81,9 +81,7 @@ async def get_course_grades(course_id: int) -> str:
                 "range": _cell_text(row, ".column-range") or None,
                 "percentage": _cell_text(row, ".column-percentage") or None,
                 "feedback": _cell_text(row, ".column-feedback") or None,
-                "contribution": _cell_text(
-                    row, ".column-contributiontocoursetotal"
-                ) or None,
+                "contribution": _cell_text(row, ".column-contributiontocoursetotal") or None,
             }
 
             is_total = (

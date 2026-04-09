@@ -33,8 +33,8 @@ def _get_conn() -> sqlite3.Connection:
         os.makedirs(STATE_DIR, exist_ok=True)
         _conn = sqlite3.connect(
             CACHE_DB,
-            isolation_level=None,         # autocommit
-            check_same_thread=False,      # we serialize via asyncio.to_thread
+            isolation_level=None,  # autocommit
+            check_same_thread=False,  # we serialize via asyncio.to_thread
         )
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.executescript(_SCHEMA)
@@ -51,9 +51,11 @@ def get(key: str) -> Any | None:
     if CACHE_DISABLED:
         return None
     try:
-        row = _get_conn().execute(
-            "SELECT value, expires_at FROM cache WHERE key = ?", (key,)
-        ).fetchone()
+        row = (
+            _get_conn()
+            .execute("SELECT value, expires_at FROM cache WHERE key = ?", (key,))
+            .fetchone()
+        )
     except sqlite3.Error as e:
         log.warning("cache get failed for %s: %s", key, e)
         return None
@@ -96,9 +98,7 @@ def clear(pattern: str | None = None) -> int:
         if pattern is None:
             cur = conn.execute("DELETE FROM cache")
         else:
-            cur = conn.execute(
-                "DELETE FROM cache WHERE key LIKE ?", (f"%{pattern}%",)
-            )
+            cur = conn.execute("DELETE FROM cache WHERE key LIKE ?", (f"%{pattern}%",))
         return cur.rowcount or 0
     except sqlite3.Error as e:
         log.warning("cache clear failed (pattern=%r): %s", pattern, e)
@@ -116,6 +116,7 @@ def cached(ttl: int) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., 
     leaves the cache untouched, so session-expiry retries in client.py
     transparently replace a failure with fresh data on the next call.
     """
+
     def decorator(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -130,5 +131,7 @@ def cached(ttl: int) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., 
             result = await fn(**kwargs)
             await asyncio.to_thread(set, key, result, ttl)
             return result
+
         return wrapper
+
     return decorator

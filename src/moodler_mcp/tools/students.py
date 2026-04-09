@@ -18,10 +18,12 @@ async def search_students(course_id: int, query: str = "") -> str:
     )
     users = []
     for u in data.get("users", []):
-        users.append({
-            "id": u.get("id"),
-            "fullname": u.get("fullname", ""),
-            "email": u.get("email", ""),
-            "profileimageurl": u.get("profileimageurl", ""),
-        })
+        users.append(
+            {
+                "id": u.get("id"),
+                "fullname": u.get("fullname", ""),
+                "email": u.get("email", ""),
+                "profileimageurl": u.get("profileimageurl", ""),
+            }
+        )
     return json.dumps({"total": len(users), "students": users}, indent=2)

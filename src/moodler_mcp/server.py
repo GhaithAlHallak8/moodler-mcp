@@ -22,9 +22,31 @@ def read_download(filename: str) -> str | bytes:
         raise FileNotFoundError(f"File not found: {filename}")
 
     text_suffixes = {
-        ".py", ".txt", ".csv", ".json", ".ipynb", ".md", ".html", ".htm",
-        ".xml", ".yaml", ".yml", ".java", ".c", ".cpp", ".js", ".ts", ".css",
-        ".sql", ".r", ".tex", ".ini", ".cfg", ".toml", ".sh", ".bat",
+        ".py",
+        ".txt",
+        ".csv",
+        ".json",
+        ".ipynb",
+        ".md",
+        ".html",
+        ".htm",
+        ".xml",
+        ".yaml",
+        ".yml",
+        ".java",
+        ".c",
+        ".cpp",
+        ".js",
+        ".ts",
+        ".css",
+        ".sql",
+        ".r",
+        ".tex",
+        ".ini",
+        ".cfg",
+        ".toml",
+        ".sh",
+        ".bat",
     }
     if filepath.suffix.lower() in text_suffixes:
         return filepath.read_text(errors="replace")
@@ -32,8 +54,8 @@ def read_download(filename: str) -> str | bytes:
 
 
 # Register all tools by importing the modules
-import moodler_mcp.tools.courses  # noqa: F401, E402
-import moodler_mcp.tools.students  # noqa: F401, E402
 import moodler_mcp.tools.assignments  # noqa: F401, E402
-import moodler_mcp.tools.grades  # noqa: F401, E402
 import moodler_mcp.tools.cache  # noqa: F401, E402
+import moodler_mcp.tools.courses  # noqa: F401, E402
+import moodler_mcp.tools.grades  # noqa: F401, E402
+import moodler_mcp.tools.students  # noqa: F401, E402

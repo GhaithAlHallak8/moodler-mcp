@@ -16,8 +16,8 @@ from moodler_mcp.cache import cached
 from moodler_mcp.client import call_moodle, fetch_page
 from moodler_mcp.scraper import scrape_course_contents
 
-
 # ---- courses ----------------------------------------------------------------
+
 
 @cached(ttl=86400)  # 1 day
 async def list_enrolled_courses(*, classification: str, limit: int) -> dict:
@@ -28,14 +28,15 @@ async def list_enrolled_courses(*, classification: str, limit: int) -> dict:
     )
 
 
-@cached(ttl=3600)   # 1 hour
+@cached(ttl=3600)  # 1 hour
 async def get_course_sections(*, course_id: int) -> list[dict]:
     return await scrape_course_contents(course_id)
 
 
 # ---- calendar / deadlines ---------------------------------------------------
 
-@cached(ttl=1800)   # 30 min
+
+@cached(ttl=1800)  # 30 min
 async def get_events_by_course(*, course_id: int, timesortfrom: int) -> dict:
     return await call_moodle(
         "core_calendar_get_action_events_by_course",
@@ -44,7 +45,7 @@ async def get_events_by_course(*, course_id: int, timesortfrom: int) -> dict:
     )
 
 
-@cached(ttl=1800)   # 30 min
+@cached(ttl=1800)  # 30 min
 async def get_events_by_timesort(*, timesortfrom: int, limitnum: int) -> dict:
     return await call_moodle(
         "core_calendar_get_action_events_by_timesort",
@@ -55,7 +56,8 @@ async def get_events_by_timesort(*, timesortfrom: int, limitnum: int) -> dict:
 
 # ---- assignments ------------------------------------------------------------
 
-@cached(ttl=600)    # 10 min
+
+@cached(ttl=600)  # 10 min
 async def list_assign_participants(
     *, assign_id: int, group_id: int, filter_text: str
 ) -> list[dict]:
@@ -67,7 +69,7 @@ async def list_assign_participants(
     )
 
 
-@cached(ttl=600)    # 10 min
+@cached(ttl=600)  # 10 min
 async def get_assign_participant(*, assign_id: int, user_id: int) -> dict:
     return await call_moodle(
         "mod_assign_get_participant",
@@ -81,28 +83,28 @@ async def get_course_module(*, cmid: int) -> dict:
     return await call_moodle("core_course_get_course_module", cmid=cmid)
 
 
-@cached(ttl=600)    # 10 min
+@cached(ttl=600)  # 10 min
 async def get_assign_submission_status(*, assign_id: int) -> dict:
-    return await call_moodle(
-        "mod_assign_get_submission_status", assignid=assign_id
-    )
+    return await call_moodle("mod_assign_get_submission_status", assignid=assign_id)
 
 
-@cached(ttl=600)    # 10 min
+@cached(ttl=600)  # 10 min
 async def get_assign_view_html(*, cmid: int) -> str:
     return await fetch_page(f"/mod/assign/view.php?id={cmid}")
 
 
 # ---- grades -----------------------------------------------------------------
 
-@cached(ttl=300)    # 5 min
+
+@cached(ttl=300)  # 5 min
 async def get_grade_report_html(*, course_id: int) -> str:
     return await fetch_page(f"/grade/report/user/index.php?id={course_id}")
 
 
 # ---- students ---------------------------------------------------------------
 
-@cached(ttl=900)    # 15 min
+
+@cached(ttl=900)  # 15 min
 async def search_course_users(*, course_id: int, query: str) -> dict:
     return await call_moodle(
         "core_grades_get_enrolled_users_for_search_widget",

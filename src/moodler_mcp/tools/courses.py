@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from moodler_mcp.client import download_file, fetch_page
 from moodler_mcp.moodle_api import get_course_sections, list_enrolled_courses
@@ -14,13 +14,9 @@ def _format_course(c: dict) -> dict:
         "category": c.get("coursecategory", ""),
     }
     if c.get("startdate"):
-        result["startdate"] = datetime.fromtimestamp(
-            c["startdate"], tz=timezone.utc
-        ).isoformat()
+        result["startdate"] = datetime.fromtimestamp(c["startdate"], tz=UTC).isoformat()
     if c.get("enddate") and c["enddate"] != 0:
-        result["enddate"] = datetime.fromtimestamp(
-            c["enddate"], tz=timezone.utc
-        ).isoformat()
+        result["enddate"] = datetime.fromtimestamp(c["enddate"], tz=UTC).isoformat()
     return result
 
 
@@ -53,9 +49,32 @@ async def get_course_contents(course_id: int) -> str:
 
 
 _TEXT_SUFFIXES = {
-    ".py", ".txt", ".csv", ".json", ".ipynb", ".md", ".html", ".htm",
-    ".xml", ".yaml", ".yml", ".java", ".c", ".cpp", ".h", ".js", ".ts",
-    ".css", ".sql", ".r", ".tex", ".ini", ".cfg", ".toml", ".sh", ".bat",
+    ".py",
+    ".txt",
+    ".csv",
+    ".json",
+    ".ipynb",
+    ".md",
+    ".html",
+    ".htm",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".js",
+    ".ts",
+    ".css",
+    ".sql",
+    ".r",
+    ".tex",
+    ".ini",
+    ".cfg",
+    ".toml",
+    ".sh",
+    ".bat",
 }
 
 _IMAGE_MIME = {
@@ -68,10 +87,21 @@ _IMAGE_MIME = {
 
 # this is because formats are technically zip containers, but we must NOT auto-extract
 _OFFICE_SUFFIXES = {
-    ".docx", ".docm", ".dotx", ".dotm",
-    ".xlsx", ".xlsm", ".xltx", ".xltm",
-    ".pptx", ".pptm", ".potx", ".potm",
-    ".odt", ".ods", ".odp",
+    ".docx",
+    ".docm",
+    ".dotx",
+    ".dotm",
+    ".xlsx",
+    ".xlsm",
+    ".xltx",
+    ".xltm",
+    ".pptx",
+    ".pptm",
+    ".potx",
+    ".potm",
+    ".odt",
+    ".ods",
+    ".odp",
 }
 
 MAX_TEXT_BYTES = 1_000_000  # ~250K tokens
@@ -127,7 +157,7 @@ def _file_to_content(filepath: str, pages: str | None = None):
 
     if ext in _TEXT_SUFFIXES:
         truncated = False
-        with open(filepath, "r", errors="replace") as f:
+        with open(filepath, errors="replace") as f:
             text = f.read(MAX_TEXT_BYTES + 1)
         if len(text) > MAX_TEXT_BYTES:
             text = text[:MAX_TEXT_BYTES]
@@ -159,8 +189,7 @@ def _file_to_content(filepath: str, pages: str | None = None):
         if pages:
             page_indices = _parse_pages(pages, total_pages)
             header = (
-                f"# {filename} ({total_pages} pages, rendering: {pages})\n"
-                f"Local path: {filepath}"
+                f"# {filename} ({total_pages} pages, rendering: {pages})\nLocal path: {filepath}"
             )
         else:
             page_indices = list(range(min(total_pages, MAX_PDF_PAGES)))
@@ -286,18 +315,14 @@ async def download_resource(url: str, pages: str | None = None):
     is_office = ext in _OFFICE_SUFFIXES
 
     if not is_office and zipfile.is_zipfile(filepath):
-        extract_dir = _os.path.join(
-            _os.path.dirname(filepath), _os.path.splitext(filename)[0]
-        )
+        extract_dir = _os.path.join(_os.path.dirname(filepath), _os.path.splitext(filename)[0])
         _os.makedirs(extract_dir, exist_ok=True)
         with zipfile.ZipFile(filepath) as zf:
             zf.extractall(extract_dir)
         _os.remove(filepath)
 
         listing_lines = [f"# {filename} (zip archive — choose files to load)"]
-        listing_lines.append(
-            "Use `read_downloaded_file(path=...)` with one of these paths:"
-        )
+        listing_lines.append("Use `read_downloaded_file(path=...)` with one of these paths:")
         listing_lines.append("")
         for root, _, names in _os.walk(extract_dir):
             for name in sorted(names):
@@ -370,11 +395,13 @@ async def get_module_content(url: str) -> str:
     Args:
         url: Moodle module URL (e.g. '/mod/assign/view.php?id=570007')
     """
-    from bs4 import BeautifulSoup
     from urllib.parse import urlparse
+
+    from bs4 import BeautifulSoup
 
     if not url.startswith("http"):
         from moodler_mcp.config import MOODLE_URL as base
+
         url = f"{base}{url}"
 
     parsed = urlparse(url)

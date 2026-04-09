@@ -19,9 +19,7 @@ async def scrape_course_contents(course_id: int) -> list[dict]:
     sections = []
 
     for section_el in soup.select("li[id^='section-']"):
-        section_name_el = section_el.select_one(
-            "[data-sectionname], .sectionname, .section-title"
-        )
+        section_name_el = section_el.select_one("[data-sectionname], .sectionname, .section-title")
         section_name = ""
         if section_name_el:
             section_name = (
@@ -74,18 +72,22 @@ async def scrape_course_contents(course_id: int) -> list[dict]:
             desc_el = activity.select_one(".contentafterlink, .activity-description")
             description = desc_el.get_text(strip=True) if desc_el else ""
 
-            modules.append({
-                "id": mod_id,
-                "name": mod_name,
-                "type": mod_type,
-                "url": mod_url,
-                "description": description,
-            })
+            modules.append(
+                {
+                    "id": mod_id,
+                    "name": mod_name,
+                    "type": mod_type,
+                    "url": mod_url,
+                    "description": description,
+                }
+            )
 
-        sections.append({
-            "name": section_name,
-            "summary": summary,
-            "modules": modules,
-        })
+        sections.append(
+            {
+                "name": section_name,
+                "summary": summary,
+                "modules": modules,
+            }
+        )
 
     return sections
