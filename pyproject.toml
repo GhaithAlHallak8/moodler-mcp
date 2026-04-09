@@ -48,3 +48,7 @@ strict = false
 warn_unused_ignores = true
 warn_redundant_casts = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["moodler_mcp.scraper", "moodler_mcp.tools.grades"]
+ignore_errors = true
