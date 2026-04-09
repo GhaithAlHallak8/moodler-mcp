@@ -12,6 +12,8 @@ returned data is the caller's responsibility and is intentionally uncached.
 
 from __future__ import annotations
 
+from typing import cast
+
 from moodler_mcp.cache import cached
 from moodler_mcp.client import call_moodle, fetch_page
 from moodler_mcp.scraper import scrape_course_contents
@@ -61,11 +63,14 @@ async def get_events_by_timesort(*, timesortfrom: int, limitnum: int) -> dict:
 async def list_assign_participants(
     *, assign_id: int, group_id: int, filter_text: str
 ) -> list[dict]:
-    return await call_moodle(
-        "mod_assign_list_participants",
-        assignid=assign_id,
-        groupid=group_id,
-        filter=filter_text,
+    return cast(
+        list[dict],
+        await call_moodle(
+            "mod_assign_list_participants",
+            assignid=assign_id,
+            groupid=group_id,
+            filter=filter_text,
+        ),
     )
 
 

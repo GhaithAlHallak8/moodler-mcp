@@ -53,10 +53,10 @@ async def call_moodle(methodname: str, **args) -> dict:
             cookies={"MoodleSession": cookie},
         )
         resp.raise_for_status()
-    except httpx.TimeoutException:
-        raise RuntimeError(f"Request to Moodle timed out ({methodname})")
+    except httpx.TimeoutException as err:
+        raise RuntimeError(f"Request to Moodle timed out ({methodname})") from err
     except httpx.HTTPError as e:
-        raise RuntimeError(f"HTTP error calling Moodle: {type(e).__name__}: {e}")
+        raise RuntimeError(f"HTTP error calling Moodle: {type(e).__name__}: {e}") from e
 
     results = resp.json()
     result = results[0]
@@ -109,10 +109,10 @@ async def fetch_page(path: str) -> str:
     try:
         resp = await _client.get(url, cookies={"MoodleSession": cookie})
         resp.raise_for_status()
-    except httpx.TimeoutException:
-        raise RuntimeError(f"Request to Moodle timed out ({path})")
+    except httpx.TimeoutException as err:
+        raise RuntimeError(f"Request to Moodle timed out ({path})") from err
     except httpx.HTTPError as e:
-        raise RuntimeError(f"HTTP error fetching page: {type(e).__name__}: {e}")
+        raise RuntimeError(f"HTTP error fetching page: {type(e).__name__}: {e}") from e
 
     # Check if redirected to login (session expired)
     if "/login/" in str(resp.url):
@@ -144,7 +144,9 @@ async def download_file(url: str) -> str:
     os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
     cookies = httpx.Cookies()
-    cookies.set("MoodleSession", cookie, domain=urlparse(MOODLE_URL).hostname)
+    hostname = urlparse(MOODLE_URL).hostname
+    assert hostname is not None, "MOODLE_URL must have a valid hostname"
+    cookies.set("MoodleSession", cookie, domain=str(hostname))
 
     async with httpx.AsyncClient(
         timeout=60.0,
@@ -156,14 +158,14 @@ async def download_file(url: str) -> str:
         try:
             resp = await dl_client.get(url)
             resp.raise_for_status()
-        except httpx.TimeoutException:
-            raise RuntimeError(f"Download timed out ({url})")
+        except httpx.TimeoutException as err:
+            raise RuntimeError(f"Download timed out ({url})") from err
         except httpx.HTTPError as e:
-            raise RuntimeError(f"Download failed: {type(e).__name__}: {e}")
+            raise RuntimeError(f"Download failed: {type(e).__name__}: {e}") from e
 
         if "/login/" in str(resp.url):
             cookie, _ = await _clear_and_get_session()
-            cookies.set("MoodleSession", cookie, domain=urlparse(MOODLE_URL).hostname)
+            cookies.set("MoodleSession", cookie, domain=str(hostname))
             resp = await dl_client.get(url)
             resp.raise_for_status()
             if "/login/" in str(resp.url):
