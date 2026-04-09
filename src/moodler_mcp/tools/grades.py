@@ -2,7 +2,7 @@ import json
 
 from bs4 import BeautifulSoup
 
-from moodler_mcp.client import fetch_page
+from moodler_mcp.moodle_api import get_grade_report_html
 from moodler_mcp.server import mcp
 
 
@@ -41,7 +41,7 @@ async def get_course_grades(course_id: int) -> str:
     Args:
         course_id: The Moodle course ID
     """
-    html = await fetch_page(f"/grade/report/user/index.php?id={course_id}")
+    html = await get_grade_report_html(course_id=course_id)
     soup = BeautifulSoup(html, "html.parser")
 
     table = soup.select_one("table.user-grade")
