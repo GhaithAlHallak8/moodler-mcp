@@ -13,6 +13,7 @@
     "url": "https://github.com/GhaithAlHallak8/moodler-mcp.git"
   },
   "homepage": "https://github.com/GhaithAlHallak8/moodler-mcp",
+  "icon": "assets/icon.png",
   "license": "MIT",
   "keywords": ["moodle", "lms", "education", "mcp"],
   "server": {
