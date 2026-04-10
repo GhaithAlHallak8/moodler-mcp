@@ -5,7 +5,7 @@ description = "A Moodle MCP server for interacting with Moodle LMS via AI assist
 license = { text = "MIT" }
 readme = "README.md"
 authors = [
-    { name = "Ghaith AlHallak", email = "ghaith.alhallak5@gmail.com" }
+    { name = "Ghaith AlHallak", email = "hello@ghaithk.dev" }
 ]
 requires-python = ">=3.14"
 dependencies = [
