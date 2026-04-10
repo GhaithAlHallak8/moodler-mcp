@@ -1,6 +1,12 @@
 import os
 
 MOODLE_URL = os.environ.get("MOODLE_URL")
+if not MOODLE_URL:
+    raise RuntimeError(
+        "MOODLE_URL is not set. Set it to the base URL of your Moodle instance "
+        "(e.g. https://moodle.example.edu), no trailing slash."
+    )
+MOODLE_URL = MOODLE_URL.rstrip("/")
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
