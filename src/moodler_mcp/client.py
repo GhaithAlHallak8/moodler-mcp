@@ -1,4 +1,3 @@
-import asyncio
 import os
 import re
 from urllib.parse import unquote, urlparse
@@ -6,21 +5,15 @@ from urllib.parse import unquote, urlparse
 import httpx
 
 from moodler_mcp.auth import clear_session
-from moodler_mcp.auth import get_session as _get_session_sync
+from moodler_mcp.auth import get_session as _get_session
 from moodler_mcp.config import MOODLE_URL, STATE_DIR, USER_AGENT
 
 DOWNLOADS_DIR = os.path.join(STATE_DIR, "downloads")
 
 
-async def _get_session() -> tuple[str, str]:
-    """Get session in a thread to avoid blocking the async event loop."""
-    return await asyncio.to_thread(_get_session_sync)
-
-
 async def _clear_and_get_session() -> tuple[str, str]:
-    """Clear session and re-authenticate in a thread."""
-    await asyncio.to_thread(clear_session)
-    return await asyncio.to_thread(_get_session_sync)
+    clear_session()
+    return await _get_session()
 
 
 _client = httpx.AsyncClient(
