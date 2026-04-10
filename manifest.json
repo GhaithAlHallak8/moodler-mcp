@@ -30,8 +30,7 @@
     "moodle_url": {
       "type": "string",
       "title": "Moodle URL",
-      "description": "Base URL of your Moodle instance (e.g. https://mylms.example.edu). On first run, a Chromium window will open so you can complete SSO; the session is cached locally for subsequent runs.",
-      "default": "https://mylms.ajman.ac.ae",
+      "description": "Base URL of your Moodle instance (e.g. https://moodle.example.edu), no trailing slash. On first run, a Chromium window will open so you can complete SSO; the session is cached locally for subsequent runs.",
       "required": true
     }
   },
