@@ -6,8 +6,16 @@ dist/
 wheels/
 *.egg-info
 
+# Tool caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
 # Virtual environments
 .venv
 
 # Environment
 .env
+
+# MCPB bundles
+*.mcpb
