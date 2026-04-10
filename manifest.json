@@ -1,0 +1,45 @@
+{
+  "manifest_version": "0.4",
+  "name": "moodler-mcp",
+  "display_name": "Moodler MCP",
+  "version": "0.1.0",
+  "description": "Moodle LMS MCP server — browse courses, assignments, grades, and downloads from your Moodle instance via AI assistants.",
+  "author": {
+    "name": "Ghaith AlHallak",
+    "email": "ghaith.alhallak5@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GhaithAlHallak8/moodler-mcp.git"
+  },
+  "homepage": "https://github.com/GhaithAlHallak8/moodler-mcp",
+  "license": "MIT",
+  "keywords": ["moodle", "lms", "education", "mcp"],
+  "server": {
+    "type": "uv",
+    "entry_point": "src/moodler_mcp/__main__.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "moodler_mcp"],
+      "env": {
+        "MOODLE_URL": "${user_config.moodle_url}"
+      }
+    }
+  },
+  "user_config": {
+    "moodle_url": {
+      "type": "string",
+      "title": "Moodle URL",
+      "description": "Base URL of your Moodle instance (e.g. https://mylms.example.edu). On first run, a Chromium window will open so you can complete SSO; the session is cached locally for subsequent runs.",
+      "default": "https://mylms.ajman.ac.ae",
+      "required": true
+    }
+  },
+  "tools_generated": true,
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.14"
+    }
+  }
+}
