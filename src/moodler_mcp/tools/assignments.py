@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from bs4 import BeautifulSoup
 
 from moodler_mcp.moodle_api import (
+    get_assign_grading_html,
     get_assign_participant,
     get_assign_submission_status,
     get_assign_view_html,
@@ -110,6 +111,80 @@ async def get_assignment_participants(
                 }
             )
     return json.dumps({"total": len(participants), "participants": participants}, indent=2)
+
+
+@mcp.tool()
+async def get_grading_summary(assign_id: int) -> str:
+    """Counts of submitted / needs grading / not submitted for an assignment.
+
+    Teacher-facing. Derived from the participant list, so requires the
+    logged-in user to have grading capability on the assignment.
+
+    Args:
+        assign_id: The assignment instance ID (from get_course_deadlines)
+    """
+    data = await list_assign_participants(
+        assign_id=assign_id,
+        group_id=0,
+        filter_text="",
+    )
+    if not isinstance(data, list):
+        return json.dumps({"error": "Unexpected response shape", "raw": data}, indent=2)
+
+    total = len(data)
+    submitted = sum(1 for p in data if p.get("submitted"))
+    needs_grading = sum(1 for p in data if p.get("requiregrading"))
+    return json.dumps(
+        {
+            "assign_id": assign_id,
+            "total_participants": total,
+            "submitted": submitted,
+            "not_submitted": total - submitted,
+            "needs_grading": needs_grading,
+        },
+        indent=2,
+    )
+
+
+@mcp.tool()
+async def get_grading_table(cmid: int) -> str:
+    """Return the raw HTML of an assignment's grading table (teacher view).
+
+    Fetches `/mod/assign/view.php?id=<cmid>&action=grading` and returns the
+    page's `#region-main` content as HTML. The model is expected to read
+    the table directly: student names, submission status, grades, and
+    links to submitted files are all rendered there.
+
+    Requires the logged-in user to have the `mod/assign:grade` capability;
+    on a student account Moodle returns an `error/nopermission` page.
+
+    Args:
+        cmid: Course module id (the `id` from a /mod/assign/view.php?id=... URL)
+    """
+    html = await get_assign_grading_html(cmid=cmid)
+    soup = BeautifulSoup(html, "html.parser")
+
+    if soup.select_one(".errorbox") or "error/nopermission" in html:
+        msg_el = soup.select_one(".errorbox, #region-main .alert, .box.errorbox")
+        msg = msg_el.get_text(" ", strip=True) if msg_el else "Permission denied"
+        return json.dumps(
+            {
+                "error": "nopermission",
+                "message": msg,
+                "hint": "The grading table requires mod/assign:grade. "
+                "Log in as a teacher/grader for this assignment.",
+            },
+            indent=2,
+        )
+
+    region = soup.select_one("#region-main") or soup.body
+    if region is None:
+        return json.dumps({"error": "Could not locate page content", "length": len(html)})
+
+    for tag in region.select("script, style, noscript"):
+        tag.decompose()
+
+    return str(region)
 
 
 @mcp.tool()

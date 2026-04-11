@@ -87,11 +87,15 @@ async def call_moodle(methodname: str, **args) -> dict:
     return result.get("data", result)
 
 
-async def fetch_page(path: str) -> str:
+async def fetch_page(path: str, *, allow_error_status: bool = False) -> str:
     """Fetch an HTML page from Moodle using the session cookie.
 
     Args:
         path: URL path like '/course/view.php?id=123'
+        allow_error_status: If True, return the response body for 4xx
+            responses instead of raising. Moodle serves its own error
+            pages (e.g. `error/nopermission`) with non-2xx status codes,
+            so callers that want to parse those pages must opt in.
 
     Returns:
         The HTML content string
@@ -99,9 +103,14 @@ async def fetch_page(path: str) -> str:
     cookie, _ = await _get_session()
     url = f"{MOODLE_URL}{path}"
 
+    async def _do_get(c: str) -> httpx.Response:
+        r = await _client.get(url, cookies={"MoodleSession": c})
+        if not (allow_error_status and 400 <= r.status_code < 500):
+            r.raise_for_status()
+        return r
+
     try:
-        resp = await _client.get(url, cookies={"MoodleSession": cookie})
-        resp.raise_for_status()
+        resp = await _do_get(cookie)
     except httpx.TimeoutException as err:
         raise RuntimeError(f"Request to Moodle timed out ({path})") from err
     except httpx.HTTPError as e:
@@ -110,8 +119,7 @@ async def fetch_page(path: str) -> str:
     # Check if redirected to login (session expired)
     if "/login/" in str(resp.url):
         cookie, _ = await _clear_and_get_session()
-        resp = await _client.get(url, cookies={"MoodleSession": cookie})
-        resp.raise_for_status()
+        resp = await _do_get(cookie)
         if "/login/" in str(resp.url):
             raise RuntimeError("Session expired and re-authentication failed")
 

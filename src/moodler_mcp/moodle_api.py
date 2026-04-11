@@ -98,6 +98,14 @@ async def get_assign_view_html(*, cmid: int) -> str:
     return await fetch_page(f"/mod/assign/view.php?id={cmid}")
 
 
+@cached(ttl=600)  # 10 min
+async def get_assign_grading_html(*, cmid: int) -> str:
+    return await fetch_page(
+        f"/mod/assign/view.php?id={cmid}&action=grading",
+        allow_error_status=True,
+    )
+
+
 # ---- grades -----------------------------------------------------------------
 
 
@@ -110,11 +118,15 @@ async def get_grade_report_html(*, course_id: int) -> str:
 
 
 @cached(ttl=900)  # 15 min
-async def search_course_users(*, course_id: int, query: str) -> dict:
-    return await call_moodle(
-        "core_grades_get_enrolled_users_for_search_widget",
-        courseid=course_id,
-        actionbaseurl="",
-        groupid=0,
-        search=query,
+async def search_course_users(*, course_id: int, query: str, perpage: int = 50) -> list:
+    return cast(
+        list,
+        await call_moodle(
+            "core_enrol_search_users",
+            courseid=course_id,
+            search=query,
+            searchanywhere=True,
+            page=0,
+            perpage=perpage,
+        ),
     )
