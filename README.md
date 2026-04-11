@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/icon.png" alt="moodler-mcp logo" width="140" />
+  <img src="assets/banner.png" alt="moodler-mcp" />
 </p>
-
-<h1 align="center">moodler-mcp</h1>
 
 <p align="center">
   <em>Talk to your Moodle in plain English.</em>
