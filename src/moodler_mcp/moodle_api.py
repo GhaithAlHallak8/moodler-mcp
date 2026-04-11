@@ -98,6 +98,14 @@ async def get_assign_view_html(*, cmid: int) -> str:
     return await fetch_page(f"/mod/assign/view.php?id={cmid}")
 
 
+@cached(ttl=600)  # 10 min
+async def get_assign_grading_html(*, cmid: int) -> str:
+    return await fetch_page(
+        f"/mod/assign/view.php?id={cmid}&action=grading",
+        allow_error_status=True,
+    )
+
+
 # ---- grades -----------------------------------------------------------------
 
 
