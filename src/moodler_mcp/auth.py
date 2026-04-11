@@ -1,7 +1,35 @@
 import os
 import re
+import sys
 
 from moodler_mcp.config import MOODLE_URL, STATE_DIR, STATE_FILE
+
+_NO_BROWSER_MESSAGE = (
+    "moodler-mcp could not find a compatible browser.\n"
+    "Install one of the following and try again:\n"
+    "  • Google Chrome: https://www.google.com/chrome/\n"
+    "  • Or Playwright's bundled Chromium: `uv run playwright install chromium`"
+)
+
+
+async def _launch_browser(p, headless: bool):
+    """Try bundled Chromium → system Chrome → Edge (Windows) → error."""
+    attempts = [
+        {},
+        {"channel": "chrome"},
+    ]
+    if sys.platform == "win32":
+        attempts.append({"channel": "msedge"})
+
+    last_error: Exception | None = None
+    for kwargs in attempts:
+        try:
+            return await p.chromium.launch(headless=headless, **kwargs)
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(_NO_BROWSER_MESSAGE) from last_error
+
 
 _session_cache: dict | None = None
 
@@ -35,7 +63,7 @@ async def _authenticate(headless: bool) -> dict:
     _ensure_state_dir()
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=headless)
+        browser = await _launch_browser(p, headless=headless)
 
         if os.path.exists(STATE_FILE) and headless:
             context = await browser.new_context(storage_state=STATE_FILE)

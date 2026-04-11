@@ -35,6 +35,20 @@ It handles courses, assignments, deadlines, grades, feedback, file downloads, an
 
 ## Install
 
+### Prerequisites
+
+Both install paths need [`uv`](https://docs.astral.sh/uv/) on your machine — it'll fetch Python 3.14 for you on first run.
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
 ### Option 1: One-click bundle (recommended)
 
 1. Grab `moodler-mcp.mcpb` from the [latest release](https://github.com/GhaithAlHallak8/moodler-mcp/releases).
@@ -45,8 +59,6 @@ It handles courses, assignments, deadlines, grades, feedback, file downloads, an
 That's it. Your session stays cached locally until it expires.
 
 ### Option 2: From source
-
-Requires Python 3.14 and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 git clone https://github.com/GhaithAlHallak8/moodler-mcp.git
