@@ -546,7 +546,7 @@ def _file_to_content(
             header += f"\n[TRUNCATED — showing first {MAX_TEXT_BYTES} chars of extracted markdown.]"
         text_block = TextContent(type="text", text=f"{header}\n\n{md}")
         image_budget = max(0, PDF_RESPONSE_BUDGET_BYTES - len(text_block.text))
-        blocks: list = [text_block]
+        blocks = [text_block]
         image_blocks, _ = _extract_docx_images(
             filepath,
             budget_remaining=image_budget,
