@@ -119,11 +119,14 @@ async def get_grade_report_html(*, course_id: int) -> str:
 
 @cached(ttl=900)  # 15 min
 async def search_course_users(*, course_id: int, query: str, perpage: int = 50) -> list:
-    return await call_moodle(
-        "core_enrol_search_users",
-        courseid=course_id,
-        search=query,
-        searchanywhere=True,
-        page=0,
-        perpage=perpage,
+    return cast(
+        list,
+        await call_moodle(
+            "core_enrol_search_users",
+            courseid=course_id,
+            search=query,
+            searchanywhere=True,
+            page=0,
+            perpage=perpage,
+        ),
     )
