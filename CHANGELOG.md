@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.3.0...v0.4.0) (2026-04-11)
+
+
+### Features
+
+* system browsers fallback ([#14](https://github.com/GhaithAlHallak8/moodler-mcp/issues/14)) ([2268ffa](https://github.com/GhaithAlHallak8/moodler-mcp/commit/2268ffa87ea7851bca44fcceb15d6cfb859dcf36))
+
 ## [0.3.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.2.1...v0.3.0) (2026-04-11)
 
 
