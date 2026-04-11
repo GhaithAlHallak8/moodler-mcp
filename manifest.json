@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "moodler-mcp",
   "display_name": "Moodler MCP",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Moodle LMS MCP server — browse courses, assignments, grades, and downloads from your Moodle instance via AI assistants.",
   "long_description": "moodler-mcp connects your AI assistant to your own Moodle instance so you can ask natural-language questions about your coursework.\n\n**What you can do**\n\n- *\"What's due this week?\"* — pulls deadlines from your calendar and assignment list.\n- *\"What do I need to do for my INT212 project?\"* — reads the assignment page and returns the full spec.\n- *\"Why are my grades in INT201 low?\"* — scrapes your user grade report and summarises what's posted.\n- *\"Download the week 4 lecture slides and summarise them.\"* — fetches PDFs through Moodle's resource redirect chain and reads them directly.\n- *\"Find student Jane Doe in the CS department.\"* — teacher-facing student search when you're logged in as staff.\n\nAuthentication is handled via a local browser-based SSO flow (Playwright) — no API tokens or institutional secrets required. Your session cookie stays on your machine. No telemetry, no external transmission beyond your own Moodle instance. See the privacy policy for details.",
   "author": {
@@ -16,7 +16,9 @@
   "homepage": "https://github.com/GhaithAlHallak8/moodler-mcp",
   "documentation": "https://github.com/GhaithAlHallak8/moodler-mcp#readme",
   "support": "https://github.com/GhaithAlHallak8/moodler-mcp/issues",
-  "privacy_policies": ["https://github.com/GhaithAlHallak8/moodler-mcp/blob/main/PRIVACY.md"],
+  "privacy_policies": [
+    "https://github.com/GhaithAlHallak8/moodler-mcp/blob/main/PRIVACY.md"
+  ],
   "icon": "assets/icon.png",
   "screenshots": [
     "assets/screenshots/01-whats-due-today.png",
@@ -24,13 +26,23 @@
     "assets/screenshots/03-course-grades.png"
   ],
   "license": "MIT",
-  "keywords": ["moodle", "lms", "education", "mcp"],
+  "keywords": [
+    "moodle",
+    "lms",
+    "education",
+    "mcp"
+  ],
   "server": {
     "type": "uv",
     "entry_point": "src/moodler_mcp/__main__.py",
     "mcp_config": {
       "command": "uv",
-      "args": ["run", "python", "-m", "moodler_mcp"],
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "moodler_mcp"
+      ],
       "env": {
         "MOODLE_URL": "${user_config.moodle_url}"
       }
@@ -46,7 +58,11 @@
   },
   "tools_generated": true,
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"],
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
     "runtimes": {
       "python": ">=3.14"
     }
