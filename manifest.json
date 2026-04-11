@@ -18,6 +18,11 @@
   "support": "https://github.com/GhaithAlHallak8/moodler-mcp/issues",
   "privacy_policies": ["https://github.com/GhaithAlHallak8/moodler-mcp/blob/main/PRIVACY.md"],
   "icon": "assets/icon.png",
+  "screenshots": [
+    "assets/screenshots/01-whats-due-today.png",
+    "assets/screenshots/02-assignment-details.png",
+    "assets/screenshots/03-course-grades.png"
+  ],
   "license": "MIT",
   "keywords": ["moodle", "lms", "education", "mcp"],
   "server": {
