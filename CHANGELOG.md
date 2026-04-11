@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.2.1...v0.3.0) (2026-04-11)
+
+
+### Features
+
+* **assignments:** add get_grading_table and get_grading_summary tools ([#10](https://github.com/GhaithAlHallak8/moodler-mcp/issues/10)) ([9437d5e](https://github.com/GhaithAlHallak8/moodler-mcp/commit/9437d5e157cc02b578f4551adae7e31a383171b9))
+* **courses:** extract Word/PowerPoint/Excel content server-side ([#11](https://github.com/GhaithAlHallak8/moodler-mcp/issues/11)) ([b1fe5ab](https://github.com/GhaithAlHallak8/moodler-mcp/commit/b1fe5ab3b5c2613ac9cbe21fa33d38e4d2b73818))
+
 ## [0.2.1](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.2.0...v0.2.1) (2026-04-11)
 
 
