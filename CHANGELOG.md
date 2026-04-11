@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.2.0...v0.2.1) (2026-04-11)
+
+
+### Bug Fixes
+
+* **ci:** build mcpb inside release-please workflow ([#7](https://github.com/GhaithAlHallak8/moodler-mcp/issues/7)) ([e4e54b1](https://github.com/GhaithAlHallak8/moodler-mcp/commit/e4e54b14dfda8e82ab5e9092f83544c60c340b53))
+
 ## [0.2.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.1.0...v0.2.0) (2026-04-11)
 
 
