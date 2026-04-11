@@ -116,9 +116,16 @@ _EMBEDDED_IMAGE_MIME = {
     ".bmp": "image/bmp",
 }
 
+MAX_TEXT_BYTES = 1_000_000  # ~250K tokens
+MAX_IMAGE_BYTES = 5_000_000
 MAX_EMBEDDED_IMAGE_BYTES = 400_000
+MAX_PDF_PAGES = 30
 MAX_PPTX_SLIDES = 30
 MAX_XLSX_SHEETS = 10
+# Host MCP clients cap tool results at 1MB; keep image bytes well below the cap.
+PDF_RESPONSE_BUDGET_BYTES = 650_000
+PDF_RENDER_DPI = 110  # lower DPI = smaller output; 110 keeps text readable
+PDF_JPEG_QUALITY = 75
 
 
 def _extract_docx_markdown(filepath: str) -> str:
@@ -353,15 +360,6 @@ def _extract_xlsx_markdown(
         return "\n\n".join(parts)
     finally:
         wb.close()
-
-
-MAX_TEXT_BYTES = 1_000_000  # ~250K tokens
-MAX_PDF_PAGES = 30
-MAX_IMAGE_BYTES = 5_000_000
-# Host MCP clients cap tool results at 1MB; keep image bytes well below the cap.
-PDF_RESPONSE_BUDGET_BYTES = 650_000
-PDF_RENDER_DPI = 110  # lower DPI = smaller output; 110 keeps text readable
-PDF_JPEG_QUALITY = 75
 
 
 def _parse_pages(pages: str | None, total: int) -> list[int]:
