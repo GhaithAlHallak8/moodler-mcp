@@ -26,12 +26,25 @@ Built in Python, [MIT](LICENSE) licensed, distributed as a one-click `.mcpb` bun
 
 A few real queries it handles:
 
-- *"What's due this week?"* → pulls from your calendar and assignment list
-- *"What do I need to do for my THI212 project?"* → reads the assignment page and returns the full spec
-- *"Why are my grades in INT201 low?"* → scrapes your user grade report and summarises what's posted
-- *"Download the week 4 lecture slides and summarise them."* → fetches the PDF through Moodle's resource redirect chain and reads it directly (PDFs and all)
+- _"What's due this week?"_ → pulls from your calendar and assignment list
+- _"What do I need to do for my THI212 project?"_ → reads the assignment page and returns the full spec
+- _"Why are my grades in INT201 low?"_ → scrapes your user grade report and summarises what's posted
+- _"Download the week 4 lecture slides and summarise them."_ → fetches the PDF through Moodle's resource redirect chain and reads it directly (PDFs and all)
 
 It handles courses, assignments, deadlines, grades, feedback, file downloads, and — for staff accounts — assignment participant lookups and student search. The full tool list is [below](#tools).
+
+## ⚠️ Disclaimer
+
+**moodler-mcp is an unofficial, independent project. It is not affiliated with, endorsed by, or sponsored by Moodle Pty Ltd or any educational institution.**
+
+### Intended use
+
+This tool is built to help students and instructors interact with their own Moodle account more efficiently — checking deadlines, reviewing course materials, tracking grades, and organizing coursework through an AI assistant.
+
+### Not intended for
+
+- **Academic dishonesty of any kind.** This includes using an LLM to generate answers for quizzes, assignments, or exams accessed through this tool, submitting AI-generated work as your own, or any activity that violates your institution's academic integrity policy. The tool exposes your coursework to an AI — what you do with that access is your responsibility, and misuse can have serious consequences (failing grades, suspension, expulsion).
+- **Any use that violates your institution's Moodle terms of service.**
 
 ## Install
 
@@ -103,10 +116,10 @@ This means two things:
 
 ## Configuration
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `MOODLE_URL` | ✅ | _(none)_ | Base URL of your Moodle instance, no trailing slash. Example: `https://mylms.example.edu` |
-| `MOODLER_CACHE_DISABLED` | ❌ | _unset_ | Set to `1` to disable the local SQLite cache. |
+| Variable                 | Required | Default  | Description                                                                               |
+| ------------------------ | -------- | -------- | ----------------------------------------------------------------------------------------- |
+| `MOODLE_URL`             | ✅       | _(none)_ | Base URL of your Moodle instance, no trailing slash. Example: `https://mylms.example.edu` |
+| `MOODLER_CACHE_DISABLED` | ❌       | _unset_  | Set to `1` to disable the local SQLite cache.                                             |
 
 ## Where state lives
 
@@ -122,16 +135,16 @@ Delete the directory to wipe everything.
 
 Moodle reads go through a small SQLite-backed cache so repeated tool calls return instantly. TTLs are per-operation:
 
-| Data | TTL |
-|---|---|
-| Enrolled course list | 1 day |
-| Course sections | 1 hour |
-| Calendar / deadlines | 30 min |
-| Assignment participants | 10 min |
+| Data                     | TTL    |
+| ------------------------ | ------ |
+| Enrolled course list     | 1 day  |
+| Course sections          | 1 hour |
+| Calendar / deadlines     | 30 min |
+| Assignment participants  | 10 min |
 | Assignment view / status | 10 min |
-| Course module metadata | 1 day |
-| Grade report HTML | 5 min |
-| Student search | 15 min |
+| Course module metadata   | 1 day  |
+| Grade report HTML        | 5 min  |
+| Student search           | 15 min |
 
 Disable with `MOODLER_CACHE_DISABLED=1`, or call the `clear_cache` tool to wipe all or part of the cache (`clear_cache(pattern="get_grade_report_html")` to target a subset).
 
@@ -139,21 +152,21 @@ Broken cache reads never fail a tool call — corruption or disk errors are logg
 
 ## Tools
 
-| Tool | For | Description |
-|---|---|---|
-| `list_courses` | Students | List your enrolled Moodle courses. |
-| `get_course_contents` | Students | Get all sections, activities, and resources in a course. |
-| `get_module_content` | Students | Read any Moodle module page (assignment, folder, URL, page). |
-| `download_resource` | Students | Download a Moodle file (PDF, DOCX, PPTX…) and return its content. |
-| `read_downloaded_file` | Students | Re-read a previously downloaded file from the local cache. |
-| `get_course_deadlines` | Students | List all assignments, quizzes, and deadlines for a course. |
-| `get_upcoming_deadlines` | Students | Upcoming deadlines across all courses, sorted by date. |
-| `get_assignment_feedback` | Students | Your submission status, grade, and feedback for an assignment. |
-| `get_course_grades` | Students | Scrape your user grade report for a specific course. |
-| `get_assignment_participants` | Instructors | List students submitting to an assignment, with status. |
-| `get_assignment_participant_detail` | Instructors | Detailed submission info for one student on one assignment. |
-| `search_students` | Instructors | Search students enrolled in a course by name. |
-| `clear_cache` | All | Clear the local SQLite cache, optionally matching a substring. |
+| Tool                                | For         | Description                                                       |
+| ----------------------------------- | ----------- | ----------------------------------------------------------------- |
+| `list_courses`                      | Students    | List your enrolled Moodle courses.                                |
+| `get_course_contents`               | Students    | Get all sections, activities, and resources in a course.          |
+| `get_module_content`                | Students    | Read any Moodle module page (assignment, folder, URL, page).      |
+| `download_resource`                 | Students    | Download a Moodle file (PDF, DOCX, PPTX…) and return its content. |
+| `read_downloaded_file`              | Students    | Re-read a previously downloaded file from the local cache.        |
+| `get_course_deadlines`              | Students    | List all assignments, quizzes, and deadlines for a course.        |
+| `get_upcoming_deadlines`            | Students    | Upcoming deadlines across all courses, sorted by date.            |
+| `get_assignment_feedback`           | Students    | Your submission status, grade, and feedback for an assignment.    |
+| `get_course_grades`                 | Students    | Scrape your user grade report for a specific course.              |
+| `get_assignment_participants`       | Instructors | List students submitting to an assignment, with status.           |
+| `get_assignment_participant_detail` | Instructors | Detailed submission info for one student on one assignment.       |
+| `search_students`                   | Instructors | Search students enrolled in a course by name.                     |
+| `clear_cache`                       | All         | Clear the local SQLite cache, optionally matching a substring.    |
 
 ### For instructors (experimental)
 
