@@ -33,7 +33,7 @@ A few real queries it handles:
 
 It handles courses, assignments, deadlines, grades, feedback, file downloads, and — for staff accounts — assignment participant lookups and student search. The full tool list is [below](#tools).
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 **moodler-mcp is an unofficial, independent project. It is not affiliated with, endorsed by, or sponsored by Moodle Pty Ltd or any educational institution.**
 
