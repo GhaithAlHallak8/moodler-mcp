@@ -110,3 +110,5 @@ def clear_session():
     """Clear cached session, forcing re-authentication on next call."""
     global _session_cache
     _session_cache = None
+    if os.path.exists(STATE_FILE):
+        os.remove(STATE_FILE)
