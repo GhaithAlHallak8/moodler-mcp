@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.4.0...v0.5.0) (2026-04-12)
+
+
+### Features
+
+* **auth:** clear session and remove state file on session clear ([#19](https://github.com/GhaithAlHallak8/moodler-mcp/issues/19)) ([e4e5f37](https://github.com/GhaithAlHallak8/moodler-mcp/commit/e4e5f37803706e06fb3b0105c79532b910dbf6a2))
+
+
+### Documentation
+
+* add disclaimer and clarify intended use of moodler-mcp ([#20](https://github.com/GhaithAlHallak8/moodler-mcp/issues/20)) ([9b87e62](https://github.com/GhaithAlHallak8/moodler-mcp/commit/9b87e627e01f1da3ac7988fe5b58af237551d61a))
+
 ## [0.4.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.3.0...v0.4.0) (2026-04-11)
 
 
