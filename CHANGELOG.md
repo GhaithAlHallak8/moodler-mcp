@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.5.0...v0.5.1) (2026-06-23)
+
+
+### Documentation
+
+* remove weird remove emoji ([cef74d0](https://github.com/GhaithAlHallak8/moodler-mcp/commit/cef74d0d13938c3763ba0f3f7a3100e27aa56091))
+
 ## [0.5.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.4.0...v0.5.0) (2026-04-12)
 
 
