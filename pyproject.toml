@@ -11,7 +11,7 @@ requires-python = ">=3.14"
 dependencies = [
     "beautifulsoup4>=4.15.0",
     "httpx>=0.28.1",
-    "mcp[cli]>=1.27.2",
+    "mcp[cli]>=1.28.1",
     "playwright>=1.60.0",
     "pymupdf>=1.27.2.3",
     "pypandoc-binary>=1.13",
@@ -25,12 +25,12 @@ Repository = "https://github.com/GhaithAlHallak8/moodler-mcp"
 Issues = "https://github.com/GhaithAlHallak8/moodler-mcp/issues"
 
 [build-system]
-requires = ["uv_build>=0.11.21,<0.12.0"]
+requires = ["uv_build>=0.11.25,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.17",
+    "ruff>=0.15.20",
     "mypy>=2.1.0",
 ]
 
