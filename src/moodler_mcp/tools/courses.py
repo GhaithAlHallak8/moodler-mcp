@@ -220,7 +220,7 @@ def _extract_docx_images(filepath: str, budget_remaining: int) -> tuple[list, in
                 ImageContent(
                     type="image",
                     data=base64.b64encode(blob).decode(),
-                    mimeType=mime,
+                    mime_type=mime,
                 )
             )
     return blocks, used
@@ -294,7 +294,7 @@ def _extract_pptx_blocks(filepath: str, budget: int, pages: str | None = None) -
                 ImageContent(
                     type="image",
                     data=base64.b64encode(blob).decode(),
-                    mimeType=mime,
+                    mime_type=mime,
                 )
             )
 
@@ -477,7 +477,7 @@ def _file_to_content(
             )
         with open(filepath, "rb") as f:
             data = base64.b64encode(f.read()).decode()
-        return ImageContent(type="image", data=data, mimeType=_IMAGE_MIME[ext])
+        return ImageContent(type="image", data=data, mime_type=_IMAGE_MIME[ext])
 
     if ext == ".pdf":
         import pymupdf
@@ -517,7 +517,7 @@ def _file_to_content(
                 ImageContent(
                     type="image",
                     data=base64.b64encode(img_bytes).decode(),
-                    mimeType="image/jpeg",
+                    mime_type="image/jpeg",
                 )
             )
         doc.close()

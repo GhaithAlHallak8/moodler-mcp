@@ -1,11 +1,11 @@
 from pathlib import Path
 from urllib.parse import unquote
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from moodler_mcp.config import STATE_DIR
 
-mcp = FastMCP("moodler-mcp")
+mcp = MCPServer("moodler-mcp")
 
 DOWNLOADS_DIR = Path(STATE_DIR) / "downloads"
 
