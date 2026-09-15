@@ -1,190 +1,126 @@
+import json
 import os
 import re
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 import httpx
 
-from moodler_mcp.auth import clear_session
-from moodler_mcp.auth import get_session as _get_session
-from moodler_mcp.config import MOODLE_URL, STATE_DIR, USER_AGENT
+from moodler_mcp.auth import LoginRequired, load_session
+from moodler_mcp.config import DOWNLOADS_DIR, MOODLE_URL, USER_AGENT
 
-DOWNLOADS_DIR = os.path.join(STATE_DIR, "downloads")
+REST_URL = f"{MOODLE_URL}/webservice/rest/server.php"
+UPLOAD_URL = f"{MOODLE_URL}/webservice/upload.php"
 
-
-async def _clear_and_get_session() -> tuple[str, str]:
-    clear_session()
-    return await _get_session()
+_http = httpx.AsyncClient(timeout=60.0, headers={"User-Agent": USER_AGENT})
 
 
-_client = httpx.AsyncClient(
-    timeout=30.0,
-    headers={"User-Agent": USER_AGENT},
-)
+class MoodleError(RuntimeError):
+    def __init__(self, errorcode: str, message: str) -> None:
+        self.errorcode = errorcode
+        self.message = message
+        super().__init__(f"Moodle error ({errorcode}): {message}")
 
 
-async def call_moodle(methodname: str, **args) -> dict:
-    """Call a Moodle AJAX web service function.
+def flatten(prefix: str, value: Any, out: dict[str, Any]) -> None:
+    if isinstance(value, dict):
+        for k, v in value.items():
+            flatten(f"{prefix}[{k}]", v, out)
+    elif isinstance(value, list | tuple):
+        for i, v in enumerate(value):
+            flatten(f"{prefix}[{i}]", v, out)
+    elif isinstance(value, bool):
+        out[prefix] = int(value)
+    elif value is not None:
+        out[prefix] = value
 
-    Args:
-        methodname: The Moodle web service function name
-        **args: Arguments to pass to the function
 
-    Returns:
-        The response data dict
-    """
-    cookie, sesskey = await _get_session()
+def encode_args(args: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for k, v in args.items():
+        flatten(k, v, out)
+    return out
 
-    url = f"{MOODLE_URL}/lib/ajax/service.php"
-    params = {"sesskey": sesskey, "info": methodname}
-    body = [{"index": 0, "methodname": methodname, "args": args}]
 
+def _raise_for_moodle_error(data: Any) -> None:
+    if isinstance(data, dict) and "exception" in data:
+        code = str(data.get("errorcode", "unknown"))
+        message = str(data.get("message", "Unknown error"))
+        if code == "invalidtoken" or (code == "accessexception" and "token" in message.lower()):
+            raise LoginRequired()
+        raise MoodleError(code, message)
+
+
+async def call(function: str, **args: Any) -> Any:
+    session = load_session()
+    form: dict[str, Any] = {
+        "wstoken": session.token,
+        "wsfunction": function,
+        "moodlewsrestformat": "json",
+    }
+    form.update(encode_args(args))
     try:
-        resp = await _client.post(
-            url,
-            params=params,
-            json=body,
-            cookies={"MoodleSession": cookie},
-        )
+        resp = await _http.post(REST_URL, data=form)
         resp.raise_for_status()
-    except httpx.TimeoutException as err:
-        raise RuntimeError(f"Request to Moodle timed out ({methodname})") from err
-    except httpx.HTTPError as e:
-        raise RuntimeError(f"HTTP error calling Moodle: {type(e).__name__}: {e}") from e
-
-    results = resp.json()
-    result = results[0]
-
-    if result.get("error"):
-        exc = result.get("exception", {})
-        error_msg = exc.get("message", "Unknown error")
-        errorcode = exc.get("errorcode", "?")
-
-        # Session expired, clear cache and retry once
-        if "session" in error_msg.lower() or errorcode == "servicerequireslogin":
-            cookie, sesskey = await _clear_and_get_session()
-            params["sesskey"] = sesskey
-            resp = await _client.post(
-                url,
-                params=params,
-                json=body,
-                cookies={"MoodleSession": cookie},
-            )
-            resp.raise_for_status()
-            results = resp.json()
-            result = results[0]
-
-            if result.get("error"):
-                exc = result.get("exception", {})
-                raise RuntimeError(
-                    f"Moodle error ({exc.get('errorcode', '?')}): "
-                    f"{exc.get('message', 'Unknown error')}"
-                )
-
-            return result.get("data", result)
-
-        raise RuntimeError(f"Moodle error ({errorcode}): {error_msg}")
-
-    return result.get("data", result)
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(f"Request to Moodle timed out ({function})") from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"HTTP error calling Moodle: {type(exc).__name__}: {exc}") from exc
+    data = resp.json()
+    _raise_for_moodle_error(data)
+    return data
 
 
-async def fetch_page(path: str, *, allow_error_status: bool = False) -> str:
-    """Fetch an HTML page from Moodle using the session cookie.
+def webservice_url(url: str) -> str:
+    if url.startswith("/"):
+        url = f"{MOODLE_URL}{url}"
+    return url.replace("/pluginfile.php/", "/webservice/pluginfile.php/", 1)
 
-    Args:
-        path: URL path like '/course/view.php?id=123'
-        allow_error_status: If True, return the response body for 4xx
-            responses instead of raising. Moodle serves its own error
-            pages (e.g. `error/nopermission`) with non-2xx status codes,
-            so callers that want to parse those pages must opt in.
 
-    Returns:
-        The HTML content string
-    """
-    cookie, _ = await _get_session()
-    url = f"{MOODLE_URL}{path}"
-
-    async def _do_get(c: str) -> httpx.Response:
-        r = await _client.get(url, cookies={"MoodleSession": c})
-        if not (allow_error_status and 400 <= r.status_code < 500):
-            r.raise_for_status()
-        return r
-
-    try:
-        resp = await _do_get(cookie)
-    except httpx.TimeoutException as err:
-        raise RuntimeError(f"Request to Moodle timed out ({path})") from err
-    except httpx.HTTPError as e:
-        raise RuntimeError(f"HTTP error fetching page: {type(e).__name__}: {e}") from e
-
-    # Check if redirected to login (session expired)
-    if "/login/" in str(resp.url):
-        cookie, _ = await _clear_and_get_session()
-        resp = await _do_get(cookie)
-        if "/login/" in str(resp.url):
-            raise RuntimeError("Session expired and re-authentication failed")
-
-    return resp.text
+def _filename_from(resp: httpx.Response) -> str:
+    cd = resp.headers.get("content-disposition", "")
+    match = re.search(r"filename[*]?=[\"']?(?:UTF-8'')?([^\"';]+)", cd)
+    if match:
+        return unquote(match.group(1).strip())
+    return unquote(urlparse(str(resp.url)).path.split("/")[-1]) or "download"
 
 
 async def download_file(url: str) -> str:
-    """Download a file from Moodle, following redirects.
-
-    Uses a dedicated client with a cookie jar so session cookies persist
-    across the redirect chain (view.php -> pluginfile.php -> actual file).
-
-    Args:
-        url: Full Moodle URL or path (e.g. '/mod/resource/view.php?id=123')
-
-    Returns:
-        Local file path where the file was saved
-    """
-    if url.startswith("/"):
-        url = f"{MOODLE_URL}{url}"
-
-    cookie, _ = await _get_session()
+    session = load_session()
     os.makedirs(DOWNLOADS_DIR, exist_ok=True)
-
-    cookies = httpx.Cookies()
-    hostname = urlparse(MOODLE_URL).hostname
-    assert hostname is not None, "MOODLE_URL must have a valid hostname"
-    cookies.set("MoodleSession", cookie, domain=str(hostname))
-
-    async with httpx.AsyncClient(
-        timeout=60.0,
-        headers={"User-Agent": USER_AGENT},
-        cookies=cookies,
-        follow_redirects=True,
-        max_redirects=10,
-    ) as dl_client:
-        try:
-            resp = await dl_client.get(url)
+    target = webservice_url(url)
+    try:
+        async with _http.stream(
+            "GET", target, params={"token": session.token}, follow_redirects=True
+        ) as resp:
             resp.raise_for_status()
-        except httpx.TimeoutException as err:
-            raise RuntimeError(f"Download timed out ({url})") from err
-        except httpx.HTTPError as e:
-            raise RuntimeError(f"Download failed: {type(e).__name__}: {e}") from e
-
-        if "/login/" in str(resp.url):
-            cookie, _ = await _clear_and_get_session()
-            cookies.set("MoodleSession", cookie, domain=str(hostname))
-            resp = await dl_client.get(url)
-            resp.raise_for_status()
-            if "/login/" in str(resp.url):
-                raise RuntimeError("Session expired and re-authentication failed")
-
-    filename = None
-    cd = resp.headers.get("content-disposition", "")
-    if "filename=" in cd:
-        match = re.search(r'filename[*]?=["\']?(?:UTF-8\'\')?([^"\';]+)', cd)
-        if match:
-            filename = unquote(match.group(1).strip())
-
-    if not filename:
-        path = urlparse(str(resp.url)).path
-        filename = unquote(path.split("/")[-1]) or "download"
-
-    filepath = os.path.join(DOWNLOADS_DIR, filename)
-    with open(filepath, "wb") as f:
-        f.write(resp.content)
-
+            if "application/json" in resp.headers.get("content-type", ""):
+                body = await resp.aread()
+                _raise_for_moodle_error(json.loads(body))
+            filename = _filename_from(resp)
+            filepath = os.path.join(DOWNLOADS_DIR, filename)
+            with open(filepath, "wb") as fh:
+                async for chunk in resp.aiter_bytes():
+                    fh.write(chunk)
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(f"Download timed out ({url})") from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Download failed: {type(exc).__name__}: {exc}") from exc
     return filepath
+
+
+async def upload_draft(path: str) -> int:
+    session = load_session()
+    with open(path, "rb") as fh:
+        files = {"file_1": (os.path.basename(path), fh.read())}
+    resp = await _http.post(
+        UPLOAD_URL,
+        data={"token": session.token, "filearea": "draft", "itemid": 0, "filepath": "/"},
+        files=files,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    _raise_for_moodle_error(data)
+    if not isinstance(data, list) or not data or "itemid" not in data[0]:
+        raise RuntimeError(f"Upload failed: {data}")
+    return int(data[0]["itemid"])

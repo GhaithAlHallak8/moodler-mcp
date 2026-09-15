@@ -12,10 +12,25 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+APP_USER_AGENT = f"{USER_AGENT} MoodleMobile 5.1.0"
 
 STATE_DIR = os.path.expanduser("~/.moodler-mcp")
-STATE_FILE = os.path.join(STATE_DIR, "browser_state.json")
+TOKEN_FILE = os.path.join(STATE_DIR, "token.json")
+LEGACY_STATE_FILE = os.path.join(STATE_DIR, "browser_state.json")
+DOWNLOADS_DIR = os.path.join(STATE_DIR, "downloads")
 
-# Cache
 CACHE_DB = os.path.join(STATE_DIR, "cache.db")
 CACHE_DISABLED = bool(os.environ.get("MOODLER_CACHE_DISABLED"))
+
+
+def _flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes"}
+
+
+ALLOW_STUDENT_WRITES = _flag("MOODLER_ALLOW_STUDENT_WRITES")
+ALLOW_TEACHER_GRADING = _flag("MOODLER_ALLOW_TEACHER_GRADING")
+
+BOOTSTRAP_TIMEOUT_MS = 180_000
+MOBILE_SERVICE = "moodle_mobile_app"
+EMBED_LIMIT_BYTES = 700_000
+LOCAL_FILE_CLIENTS = ("claude-code", "claude code", "codex", "chatgpt")

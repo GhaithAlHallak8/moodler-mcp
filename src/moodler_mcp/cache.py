@@ -43,7 +43,7 @@ def _get_conn() -> sqlite3.Connection:
 
 def make_key(fn_name: str, kwargs: dict) -> str:
     """Build a deterministic cache key from a function name and its kwargs."""
-    return f"v1:{fn_name}:{json.dumps(kwargs, sort_keys=True, default=str)}"
+    return f"v2:{fn_name}:{json.dumps(kwargs, sort_keys=True, default=str)}"
 
 
 def get(key: str) -> Any | None:
