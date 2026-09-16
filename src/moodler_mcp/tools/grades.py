@@ -69,3 +69,65 @@ async def get_course_grades(course_id: int) -> GradeReport:
         f"{len(rows)} grade row(s); course total {total or 'not available'}.",
         GradeReport(course_id=course_id, user_id=user_id, rows=rows, course_total=total),
     )
+
+
+class CourseGrade(BaseModel):
+    course_id: int
+    grade: str
+    raw_grade: str | None
+    rank: int | None
+
+
+class GradeOverview(BaseModel):
+    total: int
+    grades: list[CourseGrade]
+
+
+class GradeItem(BaseModel):
+    id: str
+    name: str
+    category: str | None
+
+
+class GradeItemList(BaseModel):
+    course_id: int
+    total: int
+    items: list[GradeItem]
+
+
+@mcp.tool(title="Grade overview", annotations=READ)
+async def get_grade_overview() -> GradeOverview:
+    """Your final grade in every enrolled course, one call."""
+    data = await api.grade_overview()
+    grades = [
+        CourseGrade(
+            course_id=g["courseid"],
+            grade=strip_html(str(g.get("grade", ""))),
+            raw_grade=g.get("rawgrade"),
+            rank=g.get("rank"),
+        )
+        for g in data.get("grades", [])
+    ]
+    return result(
+        f"Grades for {len(grades)} course(s).", GradeOverview(total=len(grades), grades=grades)
+    )
+
+
+@mcp.tool(title="Grade items", annotations=READ)
+async def get_grade_items(course_id: int) -> GradeItemList:
+    """Teacher view: the gradebook items defined in a course.
+
+    Args:
+        course_id: The Moodle course id
+    """
+    data = await api.grade_items(course_id=course_id)
+    items = [
+        GradeItem(
+            id=str(i.get("id")), name=strip_html(i.get("itemname")), category=i.get("category")
+        )
+        for i in data.get("gradeItems", [])
+    ]
+    return result(
+        f"{len(items)} grade item(s).",
+        GradeItemList(course_id=course_id, total=len(items), items=items),
+    )

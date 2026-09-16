@@ -51,3 +51,17 @@ async def search_students(course_id: int, query: str = "") -> UserList:
         f"{len(users)} user(s) matching '{query}'.",
         UserList(course_id=course_id, total=len(users), users=users),
     )
+
+
+@mcp.tool(title="Course roster", annotations=READ)
+async def get_course_roster(course_id: int) -> UserList:
+    """Teacher view: every enrolled user in a course with roles and groups.
+
+    Args:
+        course_id: The Moodle course id
+    """
+    users = [_user(u) for u in await api.enrolled_users(course_id=course_id)]
+    return result(
+        f"{len(users)} enrolled user(s).",
+        UserList(course_id=course_id, total=len(users), users=users),
+    )

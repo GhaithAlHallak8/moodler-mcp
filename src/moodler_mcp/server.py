@@ -57,6 +57,10 @@ def read_download(filename: str) -> str | bytes:
 import moodler_mcp.tools.assignments  # noqa: F401, E402
 import moodler_mcp.tools.auth  # noqa: F401, E402
 import moodler_mcp.tools.cache  # noqa: F401, E402
+import moodler_mcp.tools.calendar  # noqa: F401, E402
 import moodler_mcp.tools.courses  # noqa: F401, E402
+import moodler_mcp.tools.forums  # noqa: F401, E402
 import moodler_mcp.tools.grades  # noqa: F401, E402
+import moodler_mcp.tools.messaging  # noqa: F401, E402
+import moodler_mcp.tools.quizzes  # noqa: F401, E402
 import moodler_mcp.tools.students  # noqa: F401, E402

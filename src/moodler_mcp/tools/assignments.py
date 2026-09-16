@@ -344,3 +344,58 @@ async def get_assignment_participant_detail(assign_id: int, user_id: int) -> Par
         grading_status=sub.get("gradingstatus"),
     )
     return result(f"{out.fullname}: {'submitted' if out.submitted else 'not submitted'}.", out)
+
+
+class Assignment(BaseModel):
+    assign_id: int
+    cmid: int
+    name: str
+    due: str | None
+    cutoff: str | None
+    opens: str | None
+    max_grade: float | None
+    intro: str
+    attachments: list[Attachment]
+
+
+class AssignmentList(BaseModel):
+    course_id: int
+    total: int
+    assignments: list[Assignment]
+
+
+@mcp.tool(title="List assignments", annotations=READ)
+async def list_assignments(course_id: int) -> AssignmentList:
+    """All assignments in a course with due dates, brief and attached files.
+
+    Args:
+        course_id: The Moodle course id
+    """
+    data = await api.assignments(course_id=course_id)
+    items = [
+        Assignment(
+            assign_id=a["id"],
+            cmid=a["cmid"],
+            name=a.get("name", ""),
+            due=iso(a.get("duedate")),
+            cutoff=iso(a.get("cutoffdate")),
+            opens=iso(a.get("allowsubmissionsfromdate")),
+            max_grade=a.get("grade") if (a.get("grade") or 0) > 0 else None,
+            intro=strip_html(a.get("intro")),
+            attachments=[
+                Attachment(
+                    filename=f.get("filename", ""),
+                    url=f.get("fileurl", ""),
+                    size=int(f.get("filesize") or 0),
+                )
+                for f in a.get("introattachments", [])
+            ],
+        )
+        for course in data.get("courses", [])
+        for a in course.get("assignments", [])
+    ]
+    items.sort(key=lambda a: a.due or "9")
+    return result(
+        f"{len(items)} assignment(s).",
+        AssignmentList(course_id=course_id, total=len(items), assignments=items),
+    )
