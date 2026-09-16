@@ -55,6 +55,7 @@ def read_download(filename: str) -> str | bytes:
 
 # Register all tools by importing the modules
 import moodler_mcp.tools.assignments  # noqa: F401, E402
+import moodler_mcp.tools.auth  # noqa: F401, E402
 import moodler_mcp.tools.cache  # noqa: F401, E402
 import moodler_mcp.tools.courses  # noqa: F401, E402
 import moodler_mcp.tools.grades  # noqa: F401, E402
