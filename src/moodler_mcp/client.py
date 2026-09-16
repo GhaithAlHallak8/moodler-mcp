@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 import httpx
+from mcp.server.mcpserver.exceptions import ToolError
 
 from moodler_mcp.auth import LoginRequired, load_session
 from moodler_mcp.config import DOWNLOADS_DIR, MOODLE_URL, USER_AGENT
@@ -15,7 +16,7 @@ UPLOAD_URL = f"{MOODLE_URL}/webservice/upload.php"
 _http = httpx.AsyncClient(timeout=60.0, headers={"User-Agent": USER_AGENT})
 
 
-class MoodleError(RuntimeError):
+class MoodleError(ToolError):
     def __init__(self, errorcode: str, message: str) -> None:
         self.errorcode = errorcode
         self.message = message
@@ -63,9 +64,9 @@ async def call(function: str, **args: Any) -> Any:
         resp = await _http.post(REST_URL, data=form)
         resp.raise_for_status()
     except httpx.TimeoutException as exc:
-        raise RuntimeError(f"Request to Moodle timed out ({function})") from exc
+        raise ToolError(f"Request to Moodle timed out ({function})") from exc
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"HTTP error calling Moodle: {type(exc).__name__}: {exc}") from exc
+        raise ToolError(f"HTTP error calling Moodle: {type(exc).__name__}: {exc}") from exc
     data = resp.json()
     _raise_for_moodle_error(data)
     return data
@@ -74,6 +75,8 @@ async def call(function: str, **args: Any) -> Any:
 def webservice_url(url: str) -> str:
     if url.startswith("/"):
         url = f"{MOODLE_URL}{url}"
+    if "/webservice/pluginfile.php/" in url:
+        return url
     return url.replace("/pluginfile.php/", "/webservice/pluginfile.php/", 1)
 
 
@@ -103,9 +106,9 @@ async def download_file(url: str) -> str:
                 async for chunk in resp.aiter_bytes():
                     fh.write(chunk)
     except httpx.TimeoutException as exc:
-        raise RuntimeError(f"Download timed out ({url})") from exc
+        raise ToolError(f"Download timed out ({url})") from exc
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"Download failed: {type(exc).__name__}: {exc}") from exc
+        raise ToolError(f"Download failed: {type(exc).__name__}: {exc}") from exc
     return filepath
 
 
@@ -122,5 +125,5 @@ async def upload_draft(path: str) -> int:
     data = resp.json()
     _raise_for_moodle_error(data)
     if not isinstance(data, list) or not data or "itemid" not in data[0]:
-        raise RuntimeError(f"Upload failed: {data}")
+        raise ToolError(f"Upload failed: {data}")
     return int(data[0]["itemid"])

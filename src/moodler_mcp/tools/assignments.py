@@ -1,307 +1,346 @@
-import json
 import time
-from datetime import UTC, datetime
 
-from bs4 import BeautifulSoup
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
+from pydantic import BaseModel
 
-from moodler_mcp.moodle_api import (
-    get_assign_grading_html,
-    get_assign_participant,
-    get_assign_submission_status,
-    get_assign_view_html,
-    get_course_module,
-    get_events_by_course,
-    get_events_by_timesort,
-    list_assign_participants,
-)
+from moodler_mcp import moodle_api as api
+from moodler_mcp.results import iso, result, strip_html
 from moodler_mcp.server import mcp
 
+READ = ToolAnnotations(
+    read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
 
-@mcp.tool()
-async def get_course_deadlines(course_id: int, include_past: bool = True) -> str:
-    """Get all assignments, quizzes, and deadlines for a course.
 
-    Returns calendar action events (assignments due, quiz deadlines, etc.)
+class Event(BaseModel):
+    id: int
+    name: str
+    course_id: int | None
+    course: str | None
+    modname: str | None
+    due: str | None
+    overdue: bool
+    action: str | None
+    url: str | None
+
+
+class EventList(BaseModel):
+    total: int
+    events: list[Event]
+
+
+class Attachment(BaseModel):
+    filename: str
+    url: str
+    size: int
+
+
+class Feedback(BaseModel):
+    assign_id: int
+    status: str | None
+    submitted_at: str | None
+    grading_status: str | None
+    grade: str | None
+    graded_at: str | None
+    grader_id: int | None
+    comments: str
+    feedback_files: list[Attachment]
+    submission_files: list[Attachment]
+    submission_text: str
+
+
+class GradingSummary(BaseModel):
+    assign_id: int
+    participants: int
+    submitted: int
+    drafts: int
+    needs_grading: int
+    graded: int
+
+
+class GradingRow(BaseModel):
+    user_id: int
+    fullname: str
+    email: str | None
+    status: str | None
+    submitted_at: str | None
+    grading_status: str | None
+    grade: str | None
+    graded_at: str | None
+    extension_until: str | None
+
+
+class GradingTable(BaseModel):
+    assign_id: int
+    cmid: int
+    rows: list[GradingRow]
+
+
+class Participant(BaseModel):
+    user_id: int
+    fullname: str
+    email: str | None
+    submitted: bool
+    requires_grading: bool
+    granted_extension: bool
+    group: str | None
+
+
+class ParticipantList(BaseModel):
+    assign_id: int
+    total: int
+    participants: list[Participant]
+
+
+class ParticipantDetail(BaseModel):
+    assign_id: int
+    user_id: int
+    fullname: str
+    email: str | None
+    submitted: bool
+    requires_grading: bool
+    granted_extension: bool
+    due: str | None
+    cutoff: str | None
+    status: str | None
+    submitted_at: str | None
+    grading_status: str | None
+
+
+def _event(e: dict) -> Event:
+    course = e.get("course") or {}
+    action = e.get("action") or {}
+    return Event(
+        id=e["id"],
+        name=e.get("activityname") or e.get("name", ""),
+        course_id=course.get("id"),
+        course=course.get("fullname"),
+        modname=e.get("modulename"),
+        due=iso(e.get("timesort") or e.get("timestart")),
+        overdue=bool(e.get("overdue")),
+        action=action.get("name"),
+        url=e.get("url"),
+    )
+
+
+def _attachments(areas: list[dict]) -> list[Attachment]:
+    out: list[Attachment] = []
+    for area in areas:
+        for f in area.get("files", []):
+            out.append(
+                Attachment(
+                    filename=f.get("filename", ""),
+                    url=f.get("fileurl", ""),
+                    size=int(f.get("filesize") or 0),
+                )
+            )
+    return out
+
+
+def _editor_text(plugins: list[dict]) -> str:
+    parts = []
+    for p in plugins:
+        for field in p.get("editorfields", []):
+            parts.append(strip_html(field.get("text")))
+    return "\n".join(t for t in parts if t)
+
+
+@mcp.tool(title="Course deadlines", annotations=READ)
+async def get_course_deadlines(course_id: int, include_past: bool = True) -> EventList:
+    """Assignment, quiz and other action deadlines for one course.
 
     Args:
-        course_id: The Moodle course ID
-        include_past: If True, include past deadlines. If False, only future.
+        course_id: The Moodle course id
+        include_past: Include deadlines already passed
     """
-    timefrom = 1 if include_past else int(time.time())
-    data = await get_events_by_course(
-        course_id=course_id,
-        timesortfrom=timefrom,
+    since = 0 if include_past else int(time.time())
+    data = await api.events_by_course(course_id=course_id, timesortfrom=since)
+    events = [_event(e) for e in data.get("events", [])]
+    return result(
+        f"{len(events)} deadline(s) for course {course_id}.",
+        EventList(total=len(events), events=events),
     )
-    events = []
-    for e in data.get("events", []):
-        event = {
-            "id": e.get("id"),
-            "name": e.get("name", ""),
-            "type": e.get("modulename", ""),
-            "instance_id": e.get("instance"),
-            "course_id": e.get("course", {}).get("id")
-            if isinstance(e.get("course"), dict)
-            else e.get("courseid"),
-        }
-        if e.get("timestart"):
-            event["due_date"] = datetime.fromtimestamp(e["timestart"], tz=UTC).isoformat()
-        if e.get("url"):
-            event["url"] = e["url"]
-        events.append(event)
-    return json.dumps({"total": len(events), "events": events}, indent=2)
 
 
-@mcp.tool()
-async def get_upcoming_deadlines(limit: int = 20) -> str:
-    """Get upcoming deadlines across all courses, sorted by date.
+@mcp.tool(title="Upcoming deadlines", annotations=READ)
+async def get_upcoming_deadlines(limit: int = 20) -> EventList:
+    """Upcoming deadlines across all your courses, soonest first.
 
     Args:
         limit: Max number of events (max 50)
     """
-    limit = min(limit, 50)
-    data = await get_events_by_timesort(
-        timesortfrom=int(time.time()),
-        limitnum=limit,
+    data = await api.events_by_timesort(timesortfrom=int(time.time()), limitnum=min(limit, 50))
+    events = [_event(e) for e in data.get("events", [])]
+    return result(
+        f"{len(events)} upcoming deadline(s).", EventList(total=len(events), events=events)
     )
-    events = []
-    for e in data.get("events", []):
-        event = {
-            "name": e.get("name", ""),
-            "type": e.get("modulename", ""),
-            "course": e.get("course", {}).get("fullname", "")
-            if isinstance(e.get("course"), dict)
-            else "",
-        }
-        if e.get("timestart"):
-            event["due_date"] = datetime.fromtimestamp(e["timestart"], tz=UTC).isoformat()
-        if e.get("url"):
-            event["url"] = e["url"]
-        events.append(event)
-    return json.dumps({"total": len(events), "events": events}, indent=2)
 
 
-@mcp.tool()
-async def get_assignment_participants(
-    assign_id: int,
-    group_id: int = 0,
-    filter_text: str = "",
-) -> str:
-    """List participants for a specific assignment with submission status.
+async def _assign_id(cmid: int) -> int:
+    cm = (await api.course_module(cmid=cmid))["cm"]
+    if cm.get("modname") != "assign":
+        raise ToolError(f"cmid {cmid} is a {cm.get('modname')}, not an assignment")
+    return int(cm["instance"])
+
+
+@mcp.tool(title="Assignment feedback", annotations=READ)
+async def get_assignment_feedback(cmid: int) -> Feedback:
+    """Your submission status, grade and teacher feedback for one assignment.
 
     Args:
-        assign_id: The assignment instance ID (from get_course_deadlines)
-        group_id: Group ID to filter by (0 for all)
-        filter_text: Filter participants by name
+        cmid: Course module id of the assignment (from get_course_contents)
     """
-    data = await list_assign_participants(
+    assign_id = await _assign_id(cmid)
+    data = await api.submission_status(assign_id=assign_id)
+    last = data.get("lastattempt") or {}
+    sub = last.get("submission") or {}
+    fb = data.get("feedback") or {}
+    grade = fb.get("grade") or {}
+    feedback_plugins = fb.get("plugins", [])
+    display = fb.get("gradefordisplay")
+    out = Feedback(
         assign_id=assign_id,
-        group_id=group_id,
-        filter_text=filter_text,
+        status=sub.get("status"),
+        submitted_at=iso(sub.get("timemodified")),
+        grading_status=last.get("gradingstatus"),
+        grade=strip_html(display) if display else None,
+        graded_at=iso(fb.get("gradeddate")),
+        grader_id=grade.get("grader"),
+        comments=_editor_text(feedback_plugins),
+        feedback_files=_attachments([a for p in feedback_plugins for a in p.get("fileareas", [])]),
+        submission_files=_attachments(
+            [a for p in sub.get("plugins", []) for a in p.get("fileareas", [])]
+        ),
+        submission_text=_editor_text(sub.get("plugins", [])),
     )
-    participants = []
-    if isinstance(data, list):
-        for p in data:
-            participants.append(
-                {
-                    "id": p.get("id"),
-                    "fullname": p.get("fullname", ""),
-                    "submitted": p.get("submitted", False),
-                    "requiregrading": p.get("requiregrading", False),
-                    "groupname": p.get("groupname", ""),
-                }
+    return result(f"Status {out.status or 'none'}, grade {out.grade or 'not graded'}.", out)
+
+
+@mcp.tool(title="Grading summary", annotations=READ)
+async def get_grading_summary(assign_id: int) -> GradingSummary:
+    """Teacher view: submission and grading counts for an assignment.
+
+    Args:
+        assign_id: Assignment instance id (module 'instance' from get_course_contents)
+    """
+    status = (await api.submission_status(assign_id=assign_id)).get("gradingsummary") or {}
+    grades = await api.assign_grades(assign_id=assign_id)
+    graded = sum(len(a.get("grades", [])) for a in grades.get("assignments", []))
+    out = GradingSummary(
+        assign_id=assign_id,
+        participants=int(status.get("participantcount") or 0),
+        submitted=int(status.get("submissionssubmittedcount") or 0),
+        drafts=int(status.get("submissiondraftscount") or 0),
+        needs_grading=int(status.get("submissionsneedgradingcount") or 0),
+        graded=graded,
+    )
+    return result(
+        f"{out.submitted}/{out.participants} submitted, {out.needs_grading} need grading.", out
+    )
+
+
+@mcp.tool(title="Grading table", annotations=READ)
+async def get_grading_table(cmid: int) -> GradingTable:
+    """Teacher view: one row per participant with submission status and grade.
+
+    Args:
+        cmid: Course module id of the assignment
+    """
+    assign_id = await _assign_id(cmid)
+    participants = (await api.assign_participants(assign_id=assign_id, group_id=0)).get(
+        "participants", []
+    )
+    subs = {
+        s["userid"]: s
+        for a in (await api.assign_submissions(assign_id=assign_id)).get("assignments", [])
+        for s in a.get("submissions", [])
+    }
+    grades = {
+        g["userid"]: g
+        for a in (await api.assign_grades(assign_id=assign_id)).get("assignments", [])
+        for g in a.get("grades", [])
+    }
+    rows = []
+    for p in participants:
+        s = subs.get(p["id"], {})
+        g = grades.get(p["id"], {})
+        rows.append(
+            GradingRow(
+                user_id=p["id"],
+                fullname=p.get("fullname", ""),
+                email=p.get("email"),
+                status=s.get("status") or p.get("submissionstatus"),
+                submitted_at=iso(s.get("timemodified")),
+                grading_status=s.get("gradingstatus"),
+                grade=g.get("grade"),
+                graded_at=iso(g.get("timemodified")),
+                extension_until=iso(p.get("extensionduedate")),
             )
-    return json.dumps({"total": len(participants), "participants": participants}, indent=2)
-
-
-@mcp.tool()
-async def get_grading_summary(assign_id: int) -> str:
-    """Counts of submitted / needs grading / not submitted for an assignment.
-
-    Teacher-facing. Derived from the participant list, so requires the
-    logged-in user to have grading capability on the assignment.
-
-    Args:
-        assign_id: The assignment instance ID (from get_course_deadlines)
-    """
-    data = await list_assign_participants(
-        assign_id=assign_id,
-        group_id=0,
-        filter_text="",
-    )
-    if not isinstance(data, list):
-        return json.dumps({"error": "Unexpected response shape", "raw": data}, indent=2)
-
-    total = len(data)
-    submitted = sum(1 for p in data if p.get("submitted"))
-    needs_grading = sum(1 for p in data if p.get("requiregrading"))
-    return json.dumps(
-        {
-            "assign_id": assign_id,
-            "total_participants": total,
-            "submitted": submitted,
-            "not_submitted": total - submitted,
-            "needs_grading": needs_grading,
-        },
-        indent=2,
-    )
-
-
-@mcp.tool()
-async def get_grading_table(cmid: int) -> str:
-    """Return the raw HTML of an assignment's grading table (teacher view).
-
-    Fetches `/mod/assign/view.php?id=<cmid>&action=grading` and returns the
-    page's `#region-main` content as HTML. The model is expected to read
-    the table directly: student names, submission status, grades, and
-    links to submitted files are all rendered there.
-
-    Requires the logged-in user to have the `mod/assign:grade` capability;
-    on a student account Moodle returns an `error/nopermission` page.
-
-    Args:
-        cmid: Course module id (the `id` from a /mod/assign/view.php?id=... URL)
-    """
-    html = await get_assign_grading_html(cmid=cmid)
-    soup = BeautifulSoup(html, "html.parser")
-
-    if soup.select_one(".errorbox") or "error/nopermission" in html:
-        msg_el = soup.select_one(".errorbox, #region-main .alert, .box.errorbox")
-        msg = msg_el.get_text(" ", strip=True) if msg_el else "Permission denied"
-        return json.dumps(
-            {
-                "error": "nopermission",
-                "message": msg,
-                "hint": "The grading table requires mod/assign:grade. "
-                "Log in as a teacher/grader for this assignment.",
-            },
-            indent=2,
         )
-
-    region = soup.select_one("#region-main") or soup.body
-    if region is None:
-        return json.dumps({"error": "Could not locate page content", "length": len(html)})
-
-    for tag in region.select("script, style, noscript"):
-        tag.decompose()
-
-    return str(region)
+    return result(
+        f"{len(rows)} participant(s).", GradingTable(assign_id=assign_id, cmid=cmid, rows=rows)
+    )
 
 
-@mcp.tool()
-async def get_assignment_participant_detail(assign_id: int, user_id: int) -> str:
-    """Get detailed submission info for a student on a specific assignment.
+@mcp.tool(title="Assignment participants", annotations=READ)
+async def get_assignment_participants(
+    assign_id: int, group_id: int = 0, filter: str = ""
+) -> ParticipantList:
+    """Teacher view: participants of an assignment with submission flags.
 
     Args:
-        assign_id: The assignment instance ID
-        user_id: The student's user ID
+        assign_id: Assignment instance id
+        group_id: Restrict to a group (0 for all)
+        filter: Case-insensitive substring on name or email
     """
-    data = await get_assign_participant(
+    data = (await api.assign_participants(assign_id=assign_id, group_id=group_id)).get(
+        "participants", []
+    )
+    needle = filter.lower()
+    rows = [
+        Participant(
+            user_id=p["id"],
+            fullname=p.get("fullname", ""),
+            email=p.get("email"),
+            submitted=bool(p.get("submitted")),
+            requires_grading=bool(p.get("requiregrading")),
+            granted_extension=bool(p.get("grantedextension")),
+            group=p.get("groupname"),
+        )
+        for p in data
+        if not needle or needle in (p.get("fullname", "") + " " + (p.get("email") or "")).lower()
+    ]
+    return result(
+        f"{len(rows)} participant(s).",
+        ParticipantList(assign_id=assign_id, total=len(rows), participants=rows),
+    )
+
+
+@mcp.tool(title="Participant detail", annotations=READ)
+async def get_assignment_participant_detail(assign_id: int, user_id: int) -> ParticipantDetail:
+    """Teacher view: one participant's submission details for an assignment.
+
+    Args:
+        assign_id: Assignment instance id
+        user_id: The student's user id
+    """
+    p = (await api.assign_participant(assign_id=assign_id, user_id=user_id)).get(
+        "participant"
+    ) or {}
+    sub = p.get("submission") or {}
+    out = ParticipantDetail(
         assign_id=assign_id,
         user_id=user_id,
+        fullname=p.get("fullname", ""),
+        email=(p.get("user") or {}).get("email"),
+        submitted=bool(p.get("submitted")),
+        requires_grading=bool(p.get("requiregrading")),
+        granted_extension=bool(p.get("grantedextension")),
+        due=iso(p.get("duedate")),
+        cutoff=iso(p.get("cutoffdate")),
+        status=sub.get("status") or p.get("submissionstatus"),
+        submitted_at=iso(sub.get("timemodified")),
+        grading_status=sub.get("gradingstatus"),
     )
-    return json.dumps(data, indent=2)
-
-
-def _extract_plugin_content(plugins: list) -> dict:
-    """Extract text and file URLs from assign submission/feedback plugins."""
-    out: dict = {}
-    for plugin in plugins or []:
-        ptype = plugin.get("type", "")
-        for editor in plugin.get("editorfields", []) or []:
-            text = (editor.get("text") or "").strip()
-            if text:
-                key = f"{ptype}_{editor.get('name', 'text')}"
-                out[key] = text
-
-        files: list[dict] = []
-        for area in plugin.get("fileareas", []) or []:
-            for f in area.get("files", []) or []:
-                files.append(
-                    {
-                        "filename": f.get("filename", ""),
-                        "url": f.get("fileurl", ""),
-                        "size": f.get("filesize"),
-                        "mimetype": f.get("mimetype", ""),
-                    }
-                )
-        if files:
-            out[f"{ptype}_files"] = files
-    return out
-
-
-@mcp.tool()
-async def get_assignment_feedback(cmid: int) -> str:
-    """Get your submission status, grade, and feedback for an assignment.
-
-    Use the `id` from a /mod/assign/view.php?id=... URL as the cmid.
-    Returns submission status, submitted text/files, grade, and grader
-    feedback (comments + annotated files).
-
-    Args:
-        cmid: The course module id (the `id` in the assignment view URL)
-    """
-    cm = await get_course_module(cmid=cmid)
-    cm_info = cm.get("cm", {}) if isinstance(cm, dict) else {}
-    assign_id = cm_info.get("instance")
-    course_id = cm_info.get("course")
-    assign_name = cm_info.get("name", "")
-    if not assign_id:
-        return json.dumps(
-            {"error": "Could not resolve cmid to an assignment instance", "raw": cm},
-            indent=2,
-        )
-
-    result: dict = {
-        "cmid": cmid,
-        "assign_id": assign_id,
-        "course_id": course_id,
-        "name": assign_name,
-    }
-
-    try:
-        status = await get_assign_submission_status(assign_id=assign_id)
-        last = status.get("lastattempt", {}) or {}
-        submission = last.get("submission", {}) or {}
-        feedback = status.get("feedback", {}) or {}
-        gradefordisplay = feedback.get("gradefordisplay", "")
-
-        result["submission"] = {
-            "status": submission.get("status", ""),
-            "gradingstatus": last.get("gradingstatus", ""),
-            "timemodified": submission.get("timemodified"),
-            "submitted_at": submission.get("timecreated"),
-            "content": _extract_plugin_content(submission.get("plugins", [])),
-        }
-        result["feedback"] = {
-            "grade": (feedback.get("grade") or {}).get("grade"),
-            "grade_display": gradefordisplay,
-            "graded_at": (feedback.get("grade") or {}).get("timemodified"),
-            "content": _extract_plugin_content(feedback.get("plugins", [])),
-        }
-        # Strip the HTML wrapper Moodle adds around gradefordisplay if present
-        if gradefordisplay:
-            result["feedback"]["grade_display_text"] = BeautifulSoup(
-                gradefordisplay, "html.parser"
-            ).get_text(" ", strip=True)
-        return json.dumps(result, indent=2)
-    except RuntimeError as e:
-        result["web_service_error"] = str(e)
-
-    try:
-        html = await get_assign_view_html(cmid=cmid)
-        soup = BeautifulSoup(html, "html.parser")
-        table = soup.select_one("table.generaltable") or soup.select_one(".submissionstatustable")
-        if table:
-            rows = {}
-            for tr in table.select("tr"):
-                th = tr.select_one("th")
-                td = tr.select_one("td")
-                if th and td:
-                    rows[th.get_text(" ", strip=True)] = td.get_text(" ", strip=True)
-            result["scraped"] = rows
-        else:
-            result["scraped_html"] = str(soup.select_one("#region-main") or soup.body)
-    except Exception as e:
-        result["scrape_error"] = f"{type(e).__name__}: {e}"
-
-    return json.dumps(result, indent=2)
+    return result(f"{out.fullname}: {'submitted' if out.submitted else 'not submitted'}.", out)

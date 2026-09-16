@@ -1,6 +1,7 @@
 import re
 
 import httpx
+from mcp.server.mcpserver.exceptions import ToolError
 
 from moodler_mcp.auth import load_session
 from moodler_mcp.client import MoodleError
@@ -31,7 +32,7 @@ async def _acquire() -> httpx.Cookies:
     if isinstance(data, dict) and "exception" in data:
         code = str(data.get("errorcode"))
         if code == "autologinkeygenerationlockout":
-            raise RuntimeError(_lockout_message(str(data.get("message", ""))))
+            raise ToolError(_lockout_message(str(data.get("message", ""))))
         raise MoodleError(code, str(data.get("message", "")))
     jar = httpx.Cookies()
     async with httpx.AsyncClient(
@@ -58,4 +59,4 @@ async def fetch_page(path: str) -> str:
             return resp.text
         if attempt == 0:
             _jar = await _acquire()
-    raise RuntimeError("Could not establish a Moodle web session for this page")
+    raise ToolError("Could not establish a Moodle web session for this page")

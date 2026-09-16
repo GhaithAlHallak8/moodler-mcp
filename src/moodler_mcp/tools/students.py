@@ -1,28 +1,53 @@
-import json
+from mcp.types import ToolAnnotations
+from pydantic import BaseModel
 
-from moodler_mcp.moodle_api import search_course_users
+from moodler_mcp import moodle_api as api
+from moodler_mcp.results import iso, result
 from moodler_mcp.server import mcp
 
+READ = ToolAnnotations(
+    read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
 
-@mcp.tool()
-async def search_students(course_id: int, query: str = "") -> str:
-    """Search participants enrolled in a course (students, teachers, TAs).
 
-    Requires the "View participants" capability in the target course, which
-    depends on site config and the caller's role — may fail for students.
+class User(BaseModel):
+    user_id: int
+    fullname: str
+    email: str | None
+    department: str | None
+    roles: list[str]
+    groups: list[str]
+    last_access: str | None
+
+
+class UserList(BaseModel):
+    course_id: int
+    total: int
+    users: list[User]
+
+
+def _user(u: dict) -> User:
+    return User(
+        user_id=u["id"],
+        fullname=u.get("fullname", ""),
+        email=u.get("email"),
+        department=u.get("department"),
+        roles=[r.get("shortname") or r.get("name", "") for r in u.get("roles", [])],
+        groups=[g.get("name", "") for g in u.get("groups", [])],
+        last_access=iso(u.get("lastcourseaccess") or u.get("lastaccess")),
+    )
+
+
+@mcp.tool(title="Search students", annotations=READ)
+async def search_students(course_id: int, query: str = "") -> UserList:
+    """Teacher view: search enrolled users in a course by name or email.
 
     Args:
-        course_id: The Moodle course ID
-        query: Search query (name or email). Empty string returns all.
+        course_id: The Moodle course id
+        query: Name or email fragment; empty returns the first 50 users
     """
-    data = await search_course_users(course_id=course_id, query=query)
-    users = [
-        {
-            "id": u.get("id"),
-            "fullname": u.get("fullname", ""),
-            "email": u.get("email", ""),
-            "profileimageurl": u.get("profileimageurl", ""),
-        }
-        for u in data
-    ]
-    return json.dumps({"total": len(users), "participants": users}, indent=2)
+    users = [_user(u) for u in await api.search_users(course_id=course_id, query=query)]
+    return result(
+        f"{len(users)} user(s) matching '{query}'.",
+        UserList(course_id=course_id, total=len(users), users=users),
+    )

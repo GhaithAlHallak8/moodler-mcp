@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+from mcp.server.mcpserver.exceptions import ToolError
 
 from moodler_mcp.config import (
     BOOTSTRAP_TIMEOUT_MS,
@@ -37,7 +38,7 @@ _NO_BROWSER_MESSAGE = (
 Progress = Callable[[float, str], Awaitable[None]]
 
 
-class LoginRequired(RuntimeError):
+class LoginRequired(ToolError):
     def __init__(self) -> None:
         super().__init__(LOGIN_REQUIRED_MESSAGE)
 
@@ -96,7 +97,7 @@ async def _launch_browser(p: Any) -> Any:
             return await p.chromium.launch(headless=False, **kwargs)
         except Exception as exc:
             last_error = exc
-    raise RuntimeError(_NO_BROWSER_MESSAGE) from last_error
+    raise ToolError(_NO_BROWSER_MESSAGE) from last_error
 
 
 def _decode_app_token(url: str, passport: str) -> tuple[str, str | None]:
@@ -104,7 +105,7 @@ def _decode_app_token(url: str, passport: str) -> tuple[str, str | None]:
     parts = raw.split(":::")
     expected = hashlib.md5(f"{MOODLE_URL}{passport}".encode()).hexdigest()
     if len(parts) < 2 or parts[0] != expected:
-        raise RuntimeError("Moodle returned a token for a different site or passport")
+        raise ToolError("Moodle returned a token for a different site or passport")
     return parts[1], parts[2] if len(parts) > 2 else None
 
 
@@ -133,7 +134,7 @@ async def _acquire_tokens(context: Any, page: Any) -> tuple[str, str]:
                     return token, private
     finally:
         page.remove_listener("request", on_request)
-    raise RuntimeError("Moodle issued a token without a private token. Run login_to_moodle again.")
+    raise ToolError("Moodle issued a token without a private token. Run login_to_moodle again.")
 
 
 async def _site_info(token: str) -> dict[str, Any]:
@@ -149,7 +150,7 @@ async def _site_info(token: str) -> dict[str, Any]:
         resp.raise_for_status()
         data = resp.json()
     if "exception" in data:
-        raise RuntimeError(f"Moodle error ({data.get('errorcode')}): {data.get('message')}")
+        raise ToolError(f"Moodle error ({data.get('errorcode')}): {data.get('message')}")
     return data
 
 
