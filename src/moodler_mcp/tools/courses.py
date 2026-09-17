@@ -1,19 +1,23 @@
+import base64
 import html
+import mimetypes
 import os
 import zipfile
+from typing import Annotated
 from urllib.parse import parse_qs, urlparse
 
-from mcp.server.mcpserver import Context
+from mcp.server.mcpserver import Context, Elicit, Resolve
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import TextContent, ToolAnnotations
+from mcp.types import BlobResourceContents, EmbeddedResource, TextContent, ToolAnnotations
 from pydantic import BaseModel
 
 from moodler_mcp import moodle_api as api
+from moodler_mcp.asking import FileChoice
 from moodler_mcp.client import download_file
-from moodler_mcp.config import DOWNLOADS_DIR, MOODLE_URL
+from moodler_mcp.config import DOWNLOADS_DIR, EMBED_LIMIT_BYTES, MOODLE_URL
 from moodler_mcp.files import OFFICE_SUFFIXES, file_to_content
-from moodler_mcp.results import iso, result, strip_html
-from moodler_mcp.server import mcp
+from moodler_mcp.results import can_ask, is_local_file_client, iso, result, strip_html
+from moodler_mcp.server import mcp, register_download
 
 READ = ToolAnnotations(
     read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
@@ -287,39 +291,94 @@ async def _resolve_download_url(url: str) -> str | list[FileRef]:
     return files
 
 
+async def _choose_file(
+    ctx: Context, url: str, choice: str | None = None
+) -> Elicit[FileChoice] | FileChoice | None:
+    if choice:
+        return FileChoice(filename=choice)
+    if not can_ask(ctx):
+        return None
+    target = await _resolve_download_url(url)
+    if not isinstance(target, list):
+        return None
+    names = "\n".join(f"- {f.filename} ({f.size} bytes)" for f in target)
+    return Elicit(f"This module has several files. Which one?\n{names}", FileChoice)
+
+
+def _delivery_blocks(filepath: str, ctx: Context | None) -> list:
+    uri = register_download(filepath)
+    blocks: list = [TextContent(type="text", text=f"Saved to: {filepath}\nResource: {uri}")]
+    size = os.path.getsize(filepath)
+    if is_local_file_client(ctx) and size <= EMBED_LIMIT_BYTES:
+        mime = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
+        with open(filepath, "rb") as fh:
+            blob = base64.b64encode(fh.read()).decode()
+        blocks.append(
+            EmbeddedResource(
+                type="resource", resource=BlobResourceContents(uri=uri, mime_type=mime, blob=blob)
+            )
+        )
+    return blocks
+
+
 @mcp.tool(title="Download resource", annotations=READ, structured_output=False)
-async def download_resource(url: str, pages: str | None = None, ctx: Context | None = None) -> list:
+async def download_resource(
+    url: str,
+    pages: str | None = None,
+    choice: str | None = None,
+    ctx: Context | None = None,
+    picked: Annotated[FileChoice | None, Resolve(_choose_file)] = None,
+) -> list:
     """Download a Moodle file and return its content plus the local file path.
 
     Accepts a pluginfile URL (from get_course_contents or get_module_content) or a
     '/mod/resource/view.php?id=...' or '/mod/folder/view.php?id=...' URL. A folder with
-    several files returns the list of files to choose from instead of downloading.
+    several files returns the list of files to choose from; pass choice=<filename> or the
+    file URL to download one of them.
 
     Content handling: text files as text (max 1MB), images inline (max 5MB), PDFs as page
     images (default first 30 pages; use pages like '1-5,7'), zips as a file listing for
     read_downloaded_file, .docx as markdown plus images, .pptx as one block per slide,
-    .xlsx as markdown tables. Other binaries return only the local path.
+    .xlsx as markdown tables. Other binaries return only the local path. On local clients
+    the file itself is attached as a resource.
 
     Args:
         url: Moodle file, resource or folder URL
         pages: 1-indexed page, slide or sheet selection like '1-5,7,10-12'
+        choice: Filename to pick when the URL is a folder with several files
     """
     target = await _resolve_download_url(url)
     if isinstance(target, list):
-        lines = ["Several files in this module; call download_resource with one of these URLs:"]
-        lines += [f"- {f.filename} ({f.size} bytes): {f.url}" for f in target]
-        return [TextContent(type="text", text="\n".join(lines))]
+        wanted = (picked.filename if picked else None) or choice
+        match = next((f for f in target if f.filename == wanted), None)
+        if match is None:
+            lines = [
+                "Several files in this module; call again with choice=<filename> or a file URL:"
+            ]
+            lines += [f"- {f.filename} ({f.size} bytes): {f.url}" for f in target]
+            return [TextContent(type="text", text="\n".join(lines))]
+        target = match.url
+    if ctx is not None:
+        await ctx.report_progress(1, 3, "Downloading")
     filepath = await download_file(target)
+    if ctx is not None:
+        await ctx.report_progress(2, 3, "Extracting")
     ext = os.path.splitext(filepath)[1].lower()
     if ext not in OFFICE_SUFFIXES and zipfile.is_zipfile(filepath):
-        return _zip_listing(filepath)
-    blocks = file_to_content(filepath, pages=pages)
-    blocks.append(TextContent(type="text", text=f"Saved to: {filepath}"))
+        blocks = _zip_listing(filepath)
+    else:
+        blocks = file_to_content(filepath, pages=pages)
+        blocks.extend(_delivery_blocks(filepath, ctx))
+    if ctx is not None:
+        await ctx.report_progress(3, 3, "Done")
+        await ctx.notify_resources_changed()
     return blocks
 
 
 @mcp.tool(title="Read downloaded file", annotations=READ, structured_output=False)
-async def read_downloaded_file(path: str, pages: str | None = None) -> list:
+async def read_downloaded_file(
+    path: str, pages: str | None = None, ctx: Context | None = None
+) -> list:
     """Read a file from the local downloads directory. Only use paths listed by a prior
     download_resource zip listing, copied verbatim.
 
@@ -333,5 +392,5 @@ async def read_downloaded_file(path: str, pages: str | None = None) -> list:
     if not os.path.exists(filepath):
         raise ToolError(f"Not found: {path}")
     blocks = file_to_content(filepath, pages=pages)
-    blocks.append(TextContent(type="text", text=f"Saved to: {filepath}"))
+    blocks.extend(_delivery_blocks(filepath, ctx))
     return blocks

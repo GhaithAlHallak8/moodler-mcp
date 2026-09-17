@@ -1,10 +1,13 @@
 import asyncio
 from datetime import datetime
+from typing import Annotated
 
+from mcp.server.mcpserver import Resolve
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
 from moodler_mcp import cache
+from moodler_mcp.asking import NO_APPROVAL, Approval, approval
 from moodler_mcp.client import call
 from moodler_mcp.results import result
 from moodler_mcp.server import mcp
@@ -22,7 +25,14 @@ class WriteResult(BaseModel):
 
 @mcp.tool(title="Save assignment grade", annotations=WRITE)
 async def save_assignment_grade(
-    assign_id: int, user_id: int, grade: float, feedback: str = "", confirm: bool = False
+    assign_id: int,
+    user_id: int,
+    grade: float,
+    feedback: str = "",
+    confirm: bool = False,
+    approval_: Annotated[
+        Approval, Resolve(approval("Save this grade for the student?"))
+    ] = NO_APPROVAL,
 ) -> WriteResult:
     """Teacher: record a grade and optional feedback comment for one student. Requires confirm=true.
 
@@ -34,7 +44,7 @@ async def save_assignment_grade(
         confirm: Must be true to execute
     """
     summary = f"grade user {user_id} on assignment {assign_id} with {grade}"
-    if not confirm:
+    if not (confirm or approval_.confirm):
         return result(NOT_CONFIRMED + summary, WriteResult(executed=False, detail=summary))
     await call(
         "mod_assign_save_grade",
@@ -54,7 +64,11 @@ async def save_assignment_grade(
 
 @mcp.tool(title="Grant extension", annotations=WRITE)
 async def grant_extension(
-    assign_id: int, user_id: int, until: str, confirm: bool = False
+    assign_id: int,
+    user_id: int,
+    until: str,
+    confirm: bool = False,
+    approval_: Annotated[Approval, Resolve(approval("Grant this extension?"))] = NO_APPROVAL,
 ) -> WriteResult:
     """Teacher: grant a due-date extension to one student. Requires confirm=true.
 
@@ -66,7 +80,7 @@ async def grant_extension(
     """
     ts = int(datetime.fromisoformat(until).timestamp())
     summary = f"extend assignment {assign_id} for user {user_id} until {until}"
-    if not confirm:
+    if not (confirm or approval_.confirm):
         return result(NOT_CONFIRMED + summary, WriteResult(executed=False, detail=summary))
     await call(
         "mod_assign_save_user_extensions", assignmentid=assign_id, userids=[user_id], dates=[ts]

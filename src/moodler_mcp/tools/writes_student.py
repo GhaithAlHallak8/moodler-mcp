@@ -1,13 +1,16 @@
 import asyncio
 import os
 from datetime import datetime
+from typing import Annotated
 
+from mcp.server.mcpserver import Resolve
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
 from moodler_mcp import cache
 from moodler_mcp import moodle_api as api
+from moodler_mcp.asking import NO_APPROVAL, Approval, approval
 from moodler_mcp.client import call, upload_draft
 from moodler_mcp.results import result
 from moodler_mcp.server import mcp
@@ -37,7 +40,14 @@ def _ts(iso_value: str) -> int:
 
 
 @mcp.tool(title="Submit assignment", annotations=WRITE)
-async def submit_assignment(assign_id: int, file_path: str, confirm: bool = False) -> WriteResult:
+async def submit_assignment(
+    assign_id: int,
+    file_path: str,
+    confirm: bool = False,
+    approval_: Annotated[
+        Approval, Resolve(approval("Submit this file to the assignment for grading?"))
+    ] = NO_APPROVAL,
+) -> WriteResult:
     """Upload a file as your submission for an assignment and submit it for grading.
     Replaces any existing draft files. Requires confirm=true.
 
@@ -49,7 +59,7 @@ async def submit_assignment(assign_id: int, file_path: str, confirm: bool = Fals
     if not os.path.isfile(file_path):
         raise ToolError(f"No such file: {file_path}")
     summary = f"submit {os.path.basename(file_path)} to assignment {assign_id}"
-    if not confirm:
+    if not (confirm or approval_.confirm):
         return result(NOT_CONFIRMED + summary, _preview(summary))
     item_id = await upload_draft(file_path)
     await call(
@@ -71,7 +81,13 @@ async def submit_assignment(assign_id: int, file_path: str, confirm: bool = Fals
 
 @mcp.tool(title="Reply in forum", annotations=WRITE)
 async def post_forum_reply(
-    post_id: int, subject: str, message: str, confirm: bool = False
+    post_id: int,
+    subject: str,
+    message: str,
+    confirm: bool = False,
+    approval_: Annotated[
+        Approval, Resolve(approval("Post this reply to the forum?"))
+    ] = NO_APPROVAL,
 ) -> WriteResult:
     """Post a reply to a forum post. Requires confirm=true.
 
@@ -82,7 +98,7 @@ async def post_forum_reply(
         confirm: Must be true to execute
     """
     summary = f"reply to post {post_id} with subject '{subject}'"
-    if not confirm:
+    if not (confirm or approval_.confirm):
         return result(NOT_CONFIRMED + summary, _preview(summary))
     data = await call(
         "mod_forum_add_discussion_post",
@@ -101,7 +117,10 @@ async def post_forum_reply(
 
 @mcp.tool(title="Reply to conversation", annotations=WRITE)
 async def reply_to_conversation(
-    conversation_id: int, message: str, confirm: bool = False
+    conversation_id: int,
+    message: str,
+    confirm: bool = False,
+    approval_: Annotated[Approval, Resolve(approval("Send this message?"))] = NO_APPROVAL,
 ) -> WriteResult:
     """Send a message in an existing conversation. Requires confirm=true.
 
@@ -111,7 +130,7 @@ async def reply_to_conversation(
         confirm: Must be true to execute
     """
     summary = f"send '{message[:60]}' to conversation {conversation_id}"
-    if not confirm:
+    if not (confirm or approval_.confirm):
         return result(NOT_CONFIRMED + summary, _preview(summary))
     data = await call(
         "core_message_send_messages_to_conversation",

@@ -44,8 +44,7 @@ def is_local_file_client(ctx: Context | None) -> bool:
 def can_ask(ctx: Context | None) -> bool:
     if ctx is None:
         return False
-    version = ctx.protocol_version or ""
-    if version >= "2026-07-28":
-        return True
     caps = ctx.client_capabilities
-    return bool(caps is not None and caps.elicitation is not None)
+    return bool(
+        caps is not None and caps.elicitation is not None and caps.elicitation.form is not None
+    )
