@@ -44,7 +44,9 @@
         "moodler_mcp"
       ],
       "env": {
-        "MOODLE_URL": "${user_config.moodle_url}"
+        "MOODLE_URL": "${user_config.moodle_url}",
+        "MOODLER_ALLOW_STUDENT_WRITES": "${user_config.allow_student_writes}",
+        "MOODLER_ALLOW_TEACHER_GRADING": "${user_config.allow_teacher_grading}"
       }
     }
   },
@@ -54,6 +56,20 @@
       "title": "Moodle URL",
       "description": "Base URL of your Moodle instance (e.g. https://moodle.example.edu), no trailing slash. On first run, a Chromium window will open so you can complete SSO; the session is cached locally for subsequent runs.",
       "required": true
+    },
+    "allow_student_writes": {
+      "type": "boolean",
+      "title": "Allow student writes",
+      "description": "Enable tools that submit assignments, post forum replies, send messages, mark notifications read, tick completion and create personal calendar events. Each destructive action asks for confirmation.",
+      "required": false,
+      "default": false
+    },
+    "allow_teacher_grading": {
+      "type": "boolean",
+      "title": "Allow teacher grading",
+      "description": "Enable tools that save assignment grades and grant extensions. Only useful for staff accounts. Each action asks for confirmation.",
+      "required": false,
+      "default": false
     }
   },
   "tools_generated": true,

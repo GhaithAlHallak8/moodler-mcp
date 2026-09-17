@@ -64,3 +64,9 @@ import moodler_mcp.tools.grades  # noqa: F401, E402
 import moodler_mcp.tools.messaging  # noqa: F401, E402
 import moodler_mcp.tools.quizzes  # noqa: F401, E402
 import moodler_mcp.tools.students  # noqa: F401, E402
+from moodler_mcp.config import ALLOW_STUDENT_WRITES, ALLOW_TEACHER_GRADING  # noqa: E402
+
+if ALLOW_STUDENT_WRITES:
+    import moodler_mcp.tools.writes_student  # noqa: F401
+if ALLOW_TEACHER_GRADING:
+    import moodler_mcp.tools.writes_teacher  # noqa: F401
