@@ -133,11 +133,12 @@ async def module_files(course_id: int, cmid: int) -> list[FileRef]:
 
 
 @mcp.tool(title="List courses", annotations=READ)
-async def list_courses(classification: str = "all", limit: int = 50) -> CourseList:
-    """List your enrolled Moodle courses.
+async def list_courses(classification: str = "inprogress", limit: int = 50) -> CourseList:
+    """List your enrolled Moodle courses. Defaults to the courses currently in progress;
+    pass classification='past' for earlier semesters or 'all' for everything.
 
     Args:
-        classification: 'all', 'inprogress', 'past' or 'future'
+        classification: 'inprogress' (default), 'past', 'future' or 'all'
         limit: Max number of courses to return (max 50)
     """
     limit = min(limit, 50)
