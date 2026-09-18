@@ -19,14 +19,13 @@ TOKEN_FILE = os.path.join(STATE_DIR, "token.json")
 LEGACY_STATE_FILE = os.path.join(STATE_DIR, "browser_state.json")
 DOWNLOADS_DIR = os.path.join(STATE_DIR, "downloads")
 
-CACHE_DB = os.path.join(STATE_DIR, "cache.db")
-CACHE_DISABLED = bool(os.environ.get("MOODLER_CACHE_DISABLED"))
-
 
 def _flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes"}
 
 
+CACHE_DB = os.path.join(STATE_DIR, "cache.db")
+CACHE_DISABLED = _flag("MOODLER_CACHE_DISABLED")
 ALLOW_STUDENT_WRITES = _flag("MOODLER_ALLOW_STUDENT_WRITES")
 ALLOW_TEACHER_GRADING = _flag("MOODLER_ALLOW_TEACHER_GRADING")
 

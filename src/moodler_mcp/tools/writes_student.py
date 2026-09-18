@@ -147,9 +147,21 @@ async def reply_to_conversation(
     return result(out.detail, out)
 
 
-@mcp.tool(title="Mark notifications read", annotations=SAFE_WRITE)
-async def mark_notifications_read() -> WriteResult:
-    """Mark all your notifications as read."""
+@mcp.tool(title="Mark notifications read", annotations=WRITE)
+async def mark_notifications_read(
+    confirm: bool = False,
+    approval_: Annotated[
+        Approval, Resolve(approval("Mark every notification as read? This cannot be undone."))
+    ] = NO_APPROVAL,
+) -> WriteResult:
+    """Mark all your notifications as read. Cannot be undone. Requires confirm=true.
+
+    Args:
+        confirm: Must be true to execute
+    """
+    summary = "mark all notifications as read"
+    if not (confirm or approval_.confirm):
+        return result(NOT_CONFIRMED + summary, _preview(summary))
     user_id = await api.current_user_id()
     await call("core_message_mark_all_notifications_as_read", useridto=user_id)
     await asyncio.to_thread(cache.clear, "notifications")

@@ -1,3 +1,5 @@
+import asyncio
+
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
@@ -94,8 +96,9 @@ async def get_quiz_attempts(quiz_id: int) -> QuizAttempts:
     Args:
         quiz_id: Quiz instance id from list_quizzes
     """
-    attempts = await api.quiz_attempts(quiz_id=quiz_id)
-    best = await api.quiz_best_grade(quiz_id=quiz_id)
+    attempts, best = await asyncio.gather(
+        api.quiz_attempts(quiz_id=quiz_id), api.quiz_best_grade(quiz_id=quiz_id)
+    )
     items = [
         Attempt(
             attempt_id=a["id"],

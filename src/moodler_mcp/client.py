@@ -75,6 +75,8 @@ async def call(function: str, **args: Any) -> Any:
 def webservice_url(url: str) -> str:
     if url.startswith("/"):
         url = f"{MOODLE_URL}{url}"
+    if urlparse(url).netloc.lower() != urlparse(MOODLE_URL).netloc.lower():
+        raise ToolError(f"Refusing to download from a host other than {MOODLE_URL}: {url}")
     if "/webservice/pluginfile.php/" in url:
         return url
     return url.replace("/pluginfile.php/", "/webservice/pluginfile.php/", 1)
@@ -83,9 +85,11 @@ def webservice_url(url: str) -> str:
 def _filename_from(resp: httpx.Response) -> str:
     cd = resp.headers.get("content-disposition", "")
     match = re.search(r"filename[*]?=[\"']?(?:UTF-8'')?([^\"';]+)", cd)
-    if match:
-        return unquote(match.group(1).strip())
-    return unquote(urlparse(str(resp.url)).path.split("/")[-1]) or "download"
+    raw = unquote(match.group(1).strip()) if match else unquote(urlparse(str(resp.url)).path)
+    name = os.path.basename(raw.replace("\\", "/")).strip()
+    if name in {"", ".", ".."}:
+        return "download"
+    return name
 
 
 async def download_file(url: str) -> str:

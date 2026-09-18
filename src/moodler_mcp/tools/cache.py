@@ -1,10 +1,17 @@
 import asyncio
 
+from mcp.types import ToolAnnotations
+
 from moodler_mcp import cache
 from moodler_mcp.server import mcp
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Clear cache",
+    annotations=ToolAnnotations(
+        read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+    ),
+)
 async def clear_cache(pattern: str | None = None) -> str:
     """Clear cached Moodle data.
 

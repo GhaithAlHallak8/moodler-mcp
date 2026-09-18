@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -138,6 +139,10 @@ def _attachments(areas: list[dict]) -> list[Attachment]:
     return out
 
 
+def _quarter_hour() -> int:
+    return int(time.time()) // 900 * 900
+
+
 def _editor_text(plugins: list[dict]) -> str:
     parts = []
     for p in plugins:
@@ -154,7 +159,7 @@ async def get_course_deadlines(course_id: int, include_past: bool = True) -> Eve
         course_id: The Moodle course id
         include_past: Include deadlines already passed
     """
-    since = 0 if include_past else int(time.time())
+    since = 0 if include_past else _quarter_hour()
     data = await api.events_by_course(course_id=course_id, timesortfrom=since)
     events = [_event(e) for e in data.get("events", [])]
     return result(
@@ -170,7 +175,7 @@ async def get_upcoming_deadlines(limit: int = 20) -> EventList:
     Args:
         limit: Max number of events (max 50)
     """
-    data = await api.events_by_timesort(timesortfrom=int(time.time()), limitnum=min(limit, 50))
+    data = await api.events_by_timesort(timesortfrom=_quarter_hour(), limitnum=min(limit, 50))
     events = [_event(e) for e in data.get("events", [])]
     return result(
         f"{len(events)} upcoming deadline(s).", EventList(total=len(events), events=events)
@@ -248,18 +253,17 @@ async def get_grading_table(cmid: int) -> GradingTable:
         cmid: Course module id of the assignment
     """
     assign_id = await _assign_id(cmid)
-    participants = (await api.assign_participants(assign_id=assign_id, group_id=0)).get(
-        "participants", []
+    part_data, sub_data, grade_data = await asyncio.gather(
+        api.assign_participants(assign_id=assign_id, group_id=0),
+        api.assign_submissions(assign_id=assign_id),
+        api.assign_grades(assign_id=assign_id),
     )
+    participants = part_data.get("participants", [])
     subs = {
-        s["userid"]: s
-        for a in (await api.assign_submissions(assign_id=assign_id)).get("assignments", [])
-        for s in a.get("submissions", [])
+        s["userid"]: s for a in sub_data.get("assignments", []) for s in a.get("submissions", [])
     }
     grades = {
-        g["userid"]: g
-        for a in (await api.assign_grades(assign_id=assign_id)).get("assignments", [])
-        for g in a.get("grades", [])
+        g["userid"]: g for a in grade_data.get("assignments", []) for g in a.get("grades", [])
     }
     rows = []
     for p in participants:

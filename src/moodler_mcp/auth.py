@@ -168,7 +168,10 @@ async def bootstrap(progress: Progress | None = None) -> Session:
         context = await browser.new_context()
         page = await context.new_page()
         try:
-            await page.goto(f"{MOODLE_URL}/my/", wait_until="networkidle")
+            with contextlib.suppress(Exception):
+                await page.goto(
+                    f"{MOODLE_URL}/my/", wait_until="domcontentloaded", timeout=BOOTSTRAP_TIMEOUT_MS
+                )
             if "/my/" not in page.url:
                 await page.wait_for_url("**/my/**", timeout=BOOTSTRAP_TIMEOUT_MS)
             await report(2, "Requesting a web service token")

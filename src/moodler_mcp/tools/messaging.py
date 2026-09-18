@@ -71,7 +71,8 @@ async def get_notifications(limit: int = 20, unread_only: bool = False) -> Notif
         limit: Max notifications to return (max 100)
         unread_only: Only unread notifications
     """
-    data = await api.notifications(limit=min(limit, 100), offset=0)
+    limit = min(limit, 100)
+    data = await api.notifications(limit=100 if unread_only else limit, offset=0)
     items = [
         Notification(
             id=n["id"],
@@ -85,7 +86,7 @@ async def get_notifications(limit: int = 20, unread_only: bool = False) -> Notif
         )
         for n in data.get("notifications", [])
         if not unread_only or not n.get("read")
-    ]
+    ][:limit]
     unread = int(data.get("unreadcount") or 0)
     return result(
         f"{len(items)} notification(s), {unread} unread.",

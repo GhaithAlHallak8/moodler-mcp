@@ -286,6 +286,8 @@ async def _resolve_download_url(url: str) -> str | list[FileRef]:
     cmid = cmid_from(url)
     cm = (await api.course_module(cmid=cmid))["cm"]
     files = await module_files(int(cm["course"]), cmid)
+    if not files:
+        raise ToolError(f"Module {cmid} ({cm.get('modname')}) has no downloadable files")
     if len(files) == 1:
         return files[0].url
     return files

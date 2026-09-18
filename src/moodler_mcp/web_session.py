@@ -34,15 +34,14 @@ async def _acquire() -> httpx.Cookies:
         if code == "autologinkeygenerationlockout":
             raise ToolError(_lockout_message(str(data.get("message", ""))))
         raise MoodleError(code, str(data.get("message", "")))
-    jar = httpx.Cookies()
     async with httpx.AsyncClient(
-        timeout=30.0, headers={"User-Agent": USER_AGENT}, cookies=jar, follow_redirects=True
+        timeout=30.0, headers={"User-Agent": USER_AGENT}, follow_redirects=True
     ) as web:
         await web.get(
             data["autologinurl"],
             params={"userid": session.userid, "key": data["key"], "urltogo": f"{MOODLE_URL}/my/"},
         )
-    return jar
+        return httpx.Cookies(web.cookies)
 
 
 async def fetch_page(path: str) -> str:
