@@ -61,6 +61,9 @@ async def submit_assignment(
     summary = f"submit {os.path.basename(file_path)} to assignment {assign_id}"
     if not (confirm or approval_.confirm):
         return result(NOT_CONFIRMED + summary, _preview(summary))
+    status = await api.submission_status(assign_id=assign_id)
+    if not (status.get("lastattempt") or {}).get("cansubmit", True):
+        raise ToolError(f"Assignment {assign_id} does not accept a submission from you right now")
     item_id = await upload_draft(file_path)
     await call(
         "mod_assign_save_submission",
