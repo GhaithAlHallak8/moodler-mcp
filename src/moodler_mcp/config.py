@@ -32,4 +32,5 @@ ALLOW_TEACHER_GRADING = _flag("MOODLER_ALLOW_TEACHER_GRADING")
 BOOTSTRAP_TIMEOUT_MS = 180_000
 MOBILE_SERVICE = "moodle_mobile_app"
 EMBED_LIMIT_BYTES = 700_000
+EMBED_FILES = os.environ.get("MOODLER_EMBED_FILES", "local").strip().lower()
 LOCAL_FILE_CLIENTS = ("claude-code", "claude code", "codex", "chatgpt")

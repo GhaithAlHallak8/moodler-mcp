@@ -7,7 +7,7 @@ from mcp.server.mcpserver import Context
 from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel
 
-from moodler_mcp.config import LOCAL_FILE_CLIENTS
+from moodler_mcp.config import EMBED_FILES, LOCAL_FILE_CLIENTS
 
 
 def result(summary: str, data: BaseModel) -> Any:
@@ -42,6 +42,14 @@ def client_name(ctx: Context | None) -> str:
 def is_local_file_client(ctx: Context | None) -> bool:
     name = client_name(ctx)
     return any(marker in name for marker in LOCAL_FILE_CLIENTS)
+
+
+def should_embed_file(ctx: Context | None) -> bool:
+    if EMBED_FILES == "always":
+        return True
+    if EMBED_FILES == "never":
+        return False
+    return is_local_file_client(ctx)
 
 
 def can_ask(ctx: Context | None) -> bool:
