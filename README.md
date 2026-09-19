@@ -129,6 +129,7 @@ This means it works anywhere your account works: if your institution has the Moo
 | `MOODLE_URL`                    | ✅       | _(none)_ | Base URL of your Moodle instance, no trailing slash. Example: `https://mylms.example.edu`                                                                       |
 | `MOODLER_ALLOW_STUDENT_WRITES`  | ❌       | off      | Registers `submit_assignment`, `post_forum_reply`, `reply_to_conversation`, `mark_notifications_read`, `mark_activity_complete`, `create_calendar_event`.       |
 | `MOODLER_ALLOW_TEACHER_GRADING` | ❌       | off      | Registers `save_assignment_grade` and `grant_extension`.                                                                                                        |
+| `MOODLER_EMBED_FILES`           | ❌       | `local`  | When `download_resource` attaches the file itself as an embedded resource: `local` (Claude Code, Codex, ChatGPT desktop), `always`, or `never`. Files over 700KB are never embedded. |
 | `MOODLER_CACHE_DISABLED`        | ❌       | _unset_  | Set to `1` to disable the local SQLite cache.                                                                                                                   |
 
 Flags accept `1`, `true` or `yes`. Tools behind a disabled flag are not registered at all, so your assistant never sees them. Destructive writes ask for confirmation (an approval prompt on clients that support it, otherwise an explicit `confirm=true` argument).

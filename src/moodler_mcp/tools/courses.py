@@ -16,7 +16,7 @@ from moodler_mcp.asking import FileChoice
 from moodler_mcp.client import download_file
 from moodler_mcp.config import DOWNLOADS_DIR, EMBED_LIMIT_BYTES, MOODLE_URL
 from moodler_mcp.files import OFFICE_SUFFIXES, file_to_content
-from moodler_mcp.results import can_ask, is_local_file_client, iso, result, strip_html
+from moodler_mcp.results import can_ask, iso, result, should_embed_file, strip_html
 from moodler_mcp.server import mcp, register_download
 
 READ = ToolAnnotations(
@@ -312,7 +312,7 @@ def _delivery_blocks(filepath: str, ctx: Context | None) -> list:
     uri = register_download(filepath)
     blocks: list = [TextContent(type="text", text=f"Saved to: {filepath}\nResource: {uri}")]
     size = os.path.getsize(filepath)
-    if is_local_file_client(ctx) and size <= EMBED_LIMIT_BYTES:
+    if should_embed_file(ctx) and size <= EMBED_LIMIT_BYTES:
         mime = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
         with open(filepath, "rb") as fh:
             blob = base64.b64encode(fh.read()).decode()
