@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v1.0.0...v1.0.1) (2026-09-19)
+
+
+### Bug Fixes
+
+* include the json payload in tool text for clients that ignore structured content ([#37](https://github.com/GhaithAlHallak8/moodler-mcp/issues/37)) ([70aea4a](https://github.com/GhaithAlHallak8/moodler-mcp/commit/70aea4a85263bdbdadfc142f383ec6cfbee56f57))
+
 ## [1.0.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.5.0...v1.0.0) (2026-09-19)
 
 
