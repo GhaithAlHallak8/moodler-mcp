@@ -75,7 +75,7 @@
     "embed_files": {
       "type": "string",
       "title": "Attach downloaded files",
-      "description": "When download_resource attaches the file itself to the tool result: local (only clients with local file access), always, or never. Files over 700KB are never attached.",
+      "description": "When download_resource attaches the file itself to the tool result: local (only clients with local file access), always, or never. Claude Desktop cannot accept attached files and is always excluded. Files over 700KB are never attached.",
       "required": false,
       "default": "local"
     }
