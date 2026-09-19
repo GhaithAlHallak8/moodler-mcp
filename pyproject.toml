@@ -1,6 +1,6 @@
 [project]
 name = "moodler-mcp"
-version = "1.0.0"
+version = "1.0.1"
 description = "A Moodle MCP server for interacting with Moodle LMS via AI assistants"
 license = { text = "MIT" }
 readme = "README.md"
