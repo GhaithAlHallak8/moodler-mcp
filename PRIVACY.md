@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-04-11_
+_Last updated: 2026-09-19_
 
 moodler-mcp is a local tool that connects your AI assistant to **your own
 Moodle instance**. It runs entirely on your machine. It does **not** send your
@@ -14,20 +14,21 @@ When you use moodler-mcp, it connects to the Moodle URL you configure
 Moodle user — your courses, assignments, deadlines, grades, feedback, and
 resource files. It does this by:
 
-1. Launching a Chromium browser window on first run so you can complete
-   single-sign-on (SSO) against your institution's identity provider.
-2. Storing the resulting session cookie locally so subsequent runs can reuse
-   your authenticated session without re-prompting you.
-3. Making HTTP requests to your Moodle instance's internal endpoints on your
-   behalf, using the same session a web browser would.
+1. Launching a browser window once, when you run the `login_to_moodle` tool,
+   so you can complete single-sign-on (SSO) against your institution's
+   identity provider.
+2. Asking Moodle for a web service token for your account (the same kind the
+   official Moodle mobile app receives) and storing it locally.
+3. Making requests to your Moodle instance's REST web service on your behalf
+   with that token, and downloading files you ask for.
 
 ## What is stored locally
 
 All state lives under `~/.moodler-mcp/` on your machine:
 
-- `browser_state.json` — your Moodle session cookie and browser storage,
-  created by Playwright after SSO. This is the same kind of data your web
-  browser stores when you stay logged into Moodle.
+- `token.json` — your Moodle web service token and private token, readable
+  only by your user account. You can revoke the token at any time from
+  Moodle's Security keys page.
 - `cache.db` — a local SQLite cache of Moodle API responses (course lists,
   section contents, grade reports, etc.) used to make repeated tool calls
   instant. See the cache TTL documentation in the project README.
@@ -38,8 +39,8 @@ You can wipe everything by deleting the `~/.moodler-mcp/` directory.
 
 ## What is sent where
 
-- **To your Moodle instance**: the same HTTP requests a logged-in browser
-  would make. No more, no less.
+- **To your Moodle instance**: REST web service requests carrying your
+  token, over HTTPS. No more, no less.
 - **To your AI assistant (e.g. Claude Desktop)**: the tool results that the
   assistant asked for, exactly as you would see them yourself. Whatever
   privacy policy your AI assistant has applies to how that data is processed
@@ -51,15 +52,15 @@ You can wipe everything by deleting the `~/.moodler-mcp/` directory.
 
 - No usage analytics, crash reports, or telemetry.
 - No account credentials are stored — moodler-mcp never sees your password;
-  SSO happens in the browser window and only the resulting cookie is retained.
+  SSO happens in the browser window and only the resulting token is retained.
 - No data is transmitted to the project author or any hosted service.
 
 ## Your responsibilities
 
 moodler-mcp runs with the same access level your Moodle account has. Treat
 the contents of `~/.moodler-mcp/` as sensitive — anyone with access to that
-directory can act as you against your Moodle instance until the session
-expires.
+directory can act as you against your Moodle instance until you revoke the
+token.
 
 ## Questions
 

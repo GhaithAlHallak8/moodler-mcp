@@ -1,115 +1,133 @@
-import json
+from mcp.types import ToolAnnotations
+from pydantic import BaseModel
 
-from bs4 import BeautifulSoup
-
-from moodler_mcp.moodle_api import get_grade_report_html
+from moodler_mcp import moodle_api as api
+from moodler_mcp.results import result, strip_html
 from moodler_mcp.server import mcp
 
+READ = ToolAnnotations(
+    read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
 
-def _cell_text(row, selector: str) -> str:
-    el = row.select_one(selector)
-    if not el:
+
+class GradeRow(BaseModel):
+    item: str
+    grade: str
+    range: str
+    percentage: str
+    weight: str
+    feedback: str
+    contribution: str
+    is_category: bool
+
+
+class GradeReport(BaseModel):
+    course_id: int
+    user_id: int
+    rows: list[GradeRow]
+    course_total: str | None
+
+
+def _cell(row: dict, key: str) -> str:
+    cell = row.get(key)
+    if not isinstance(cell, dict):
         return ""
-
-    for junk in el.select(".action-menu, .actionmenu"):
-        junk.decompose()
-    return el.get_text(" ", strip=True)
+    return strip_html(cell.get("content"))
 
 
-def _item_name(row) -> str:
-    name_cell = row.select_one(".column-itemname")
-    if not name_cell:
-        return ""
-
-    link = name_cell.select_one("a.gradeitemheader")
-    if link:
-        return link.get_text(strip=True)
-
-    title = name_cell.select_one(".rowtitle")
-    if title:
-        return title.get_text(" ", strip=True)
-    return name_cell.get_text(" ", strip=True)
-
-
-@mcp.tool()
-async def get_course_grades(course_id: int) -> str:
-    """Get your grades for a course by scraping the user grade report page.
-
-    Returns grade items with their grade, range, percentage, feedback, and
-    contribution to the course total, plus the course total row.
+@mcp.tool(title="Course grades", annotations=READ)
+async def get_course_grades(course_id: int) -> GradeReport:
+    """Your grade report for one course: every graded item with grade, range, weight,
+    percentage and feedback, plus the course total.
 
     Args:
-        course_id: The Moodle course ID
+        course_id: The Moodle course id
     """
-    html = await get_grade_report_html(course_id=course_id)
-    soup = BeautifulSoup(html, "html.parser")
-
-    table = soup.select_one("table.user-grade")
-    if not table:
-        return json.dumps(
-            {
-                "course_id": course_id,
-                "error": "Grade report table not found on the page.",
-            },
-            indent=2,
-        )
-
-    items: list[dict] = []
-    course_total: dict | None = None
-    current_category: str | None = None
-    parse_error: str | None = None
-
-    try:
-        for row in table.select("tbody > tr"):
-            classes = row.get("class", [])
-            if "spacer" in classes:
+    user_id = await api.current_user_id()
+    data = await api.grades_table(course_id=course_id, user_id=user_id)
+    rows: list[GradeRow] = []
+    total: str | None = None
+    for table in data.get("tables", []):
+        for raw in table.get("tabledata", []):
+            if not isinstance(raw, dict) or not raw.get("itemname"):
                 continue
-
-            category_th = row.select_one("th.category")
-            if category_th and not row.select_one(".column-grade"):
-                current_category = category_th.get_text(" ", strip=True)
-                continue
-
-            name = _item_name(row)
-            if not name:
-                continue
-
-            entry = {
-                "name": name,
-                "weight": _cell_text(row, ".column-weight") or None,
-                "grade": _cell_text(row, ".column-grade") or None,
-                "range": _cell_text(row, ".column-range") or None,
-                "percentage": _cell_text(row, ".column-percentage") or None,
-                "feedback": _cell_text(row, ".column-feedback") or None,
-                "contribution": _cell_text(row, ".column-contributiontocoursetotal") or None,
-            }
-
-            is_total = (
-                "lastrow" in classes
-                or "Course total" in name
-                or row.select_one(".column-itemname .aggregation") is not None
+            item_cell = raw.get("itemname") or {}
+            row = GradeRow(
+                item=strip_html(item_cell.get("content")),
+                grade=_cell(raw, "grade"),
+                range=_cell(raw, "range"),
+                percentage=_cell(raw, "percentage"),
+                weight=_cell(raw, "weight"),
+                feedback=_cell(raw, "feedback"),
+                contribution=_cell(raw, "contributiontocoursetotal"),
+                is_category="category" in str(item_cell.get("class", "")),
             )
-            if is_total:
-                course_total = entry
-                continue
+            if "course total" in row.item.lower():
+                total = row.grade or None
+            rows.append(row)
+    return result(
+        f"{len(rows)} grade row(s); course total {total or 'not available'}.",
+        GradeReport(course_id=course_id, user_id=user_id, rows=rows, course_total=total),
+    )
 
-            if current_category:
-                entry["category"] = current_category
-            items.append(entry)
-    except Exception as e:
-        parse_error = f"{type(e).__name__}: {e}"
 
-    result: dict = {
-        "course_id": course_id,
-        "items": items,
-        "course_total": course_total,
-    }
+class CourseGrade(BaseModel):
+    course_id: int
+    grade: str
+    raw_grade: str | None
+    rank: int | None
 
-    # Fallback: return the raw table HTML if parsing errored OR found nothing
-    # useful, so the agent can read it directly.
-    if parse_error or (not items and course_total is None):
-        result["raw_html"] = str(table)
-        if parse_error:
-            result["parse_error"] = parse_error
 
-    return json.dumps(result, indent=2)
+class GradeOverview(BaseModel):
+    total: int
+    grades: list[CourseGrade]
+
+
+class GradeItem(BaseModel):
+    id: str
+    name: str
+    category: str | None
+
+
+class GradeItemList(BaseModel):
+    course_id: int
+    total: int
+    items: list[GradeItem]
+
+
+@mcp.tool(title="Grade overview", annotations=READ)
+async def get_grade_overview() -> GradeOverview:
+    """Your final grade in every enrolled course, one call."""
+    data = await api.grade_overview()
+    grades = [
+        CourseGrade(
+            course_id=g["courseid"],
+            grade=strip_html(str(g.get("grade", ""))),
+            raw_grade=g.get("rawgrade"),
+            rank=g.get("rank"),
+        )
+        for g in data.get("grades", [])
+    ]
+    return result(
+        f"Grades for {len(grades)} course(s).", GradeOverview(total=len(grades), grades=grades)
+    )
+
+
+@mcp.tool(title="Grade items", annotations=READ)
+async def get_grade_items(course_id: int) -> GradeItemList:
+    """Teacher view: the gradebook items defined in a course.
+
+    Args:
+        course_id: The Moodle course id
+    """
+    data = await api.grade_items(course_id=course_id)
+    items = [
+        GradeItem(
+            id=str(i.get("id")), name=strip_html(i.get("itemname")), category=i.get("category")
+        )
+        for i in data.get("gradeItems", [])
+    ]
+    return result(
+        f"{len(items)} grade item(s).",
+        GradeItemList(course_id=course_id, total=len(items), items=items),
+    )

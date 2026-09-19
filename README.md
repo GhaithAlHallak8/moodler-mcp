@@ -14,7 +14,7 @@
 
 ---
 
-**moodler-mcp** is an open-source MCP server that plugs your Moodle account into [Claude Desktop](https://claude.ai/download) (or any MCP-compatible AI assistant). Once installed, you can stop wrestling with Moodle's UI and just ask questions in natural language.
+**moodler-mcp** is an open-source MCP server that plugs your Moodle account into [Claude Desktop](https://claude.ai/download), Claude Code, ChatGPT desktop or any MCP-compatible AI assistant. Once installed, you can stop wrestling with Moodle's UI and just ask questions in natural language.
 
 Built in Python, [MIT](LICENSE) licensed, distributed as a one-click `.mcpb` bundle.
 
@@ -67,9 +67,9 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 1. Grab `moodler-mcp.mcpb` from the [latest release](https://github.com/GhaithAlHallak8/moodler-mcp/releases).
 2. Double-click the file (or drag it into Claude Desktop's extensions view).
 3. When prompted, enter the base URL of your Moodle instance (e.g. `https://mylms.example.edu`, no trailing slash).
-4. Start a new conversation. The first time you ask anything Moodle-related, a Chromium window will open so you can complete single sign-on — that's a one-time step.
+4. Start a new conversation and ask Claude to sign in to Moodle (or just ask a Moodle question; the tool will tell Claude to run `login_to_moodle`). A browser window opens once so you can complete single sign-on.
 
-That's it. Your session stays cached locally until it expires.
+That's it. The resulting token is stored locally and stays valid until you revoke it.
 
 ### Option 2: From source
 
@@ -97,37 +97,49 @@ To wire it into Claude Desktop manually, add to `claude_desktop_config.json`:
 }
 ```
 
-## How authentication actually works
+### Option 3: ChatGPT desktop or Codex
 
-> **No API tokens. No institutional paperwork. No `MOODLE_API_TOKEN`.**
+ChatGPT's desktop app and Codex CLI share `~/.codex/config.toml`. Add:
 
-moodler-mcp does **not** use Moodle's public Web Services REST API. Instead, it drives a real browser session — the same way you log in from your laptop:
+```toml
+[mcp_servers.moodler]
+command = "uv"
+args = ["run", "--project", "/absolute/path/to/moodler-mcp", "python", "-m", "moodler_mcp"]
+env_vars = ["MOODLE_URL"]
+```
 
-1. On first run, it launches a headless Chromium via [Playwright](https://playwright.dev/python/) and navigates to `${MOODLE_URL}/my/`.
-2. If it can't find a valid session, it re-opens the browser in **headed mode** so you can complete your institution's SSO flow (SAML, Azure AD, whatever your IdP is).
-3. Once you're logged in, it extracts the `MoodleSession` cookie and scrapes the `sesskey` from the dashboard HTML, then saves both to `~/.moodler-mcp/browser_state.json`.
-4. Subsequent calls reuse that session headlessly, authenticating against Moodle's internal AJAX endpoint (`/lib/ajax/service.php`) — the same endpoint the Moodle web UI uses.
-5. If the session expires (the Moodle returns `servicerequireslogin` or redirects to `/login/`), the cookie is cleared and the flow re-runs once.
+Set `MOODLE_URL` in your shell environment. ChatGPT on the web does not read this file.
 
-This means two things:
+## How authentication works
 
-- **It works anywhere your student account works.** If you can log into Moodle in a browser, moodler-mcp can too. No permissions to request, no admin to email.
-- **It fails gracefully.** Session drift is automatically recovered on the next call.
+> **No API tokens to request. No institutional paperwork.**
+
+The first time you use any tool, it tells you to run `login_to_moodle`. That tool opens a browser window (your installed Chrome, or Playwright's Chromium) on your Moodle dashboard. Complete single sign-on as usual. moodler-mcp then asks Moodle for a mobile-app web service token, the same kind the official Moodle app uses, and stores it in `~/.moodler-mcp/token.json` with owner-only permissions. The browser closes and is never opened again.
+
+Every tool afterwards calls Moodle's REST web service with that token. No cookies, no session key, no HTML scraping. Pages that only exist as HTML use a one-off autologin key that Moodle rate-limits to one per six minutes.
+
+The token stays valid until you reset it under Moodle's **Security keys** page or an administrator sets a token lifetime. If it is revoked, tools report that you are not signed in and you run `login_to_moodle` again.
+
+This means it works anywhere your account works: if your institution has the Moodle mobile app enabled (almost all do), no permissions need to be requested and no admin needs to be emailed.
 
 ## Configuration
 
-| Variable                 | Required | Default  | Description                                                                               |
-| ------------------------ | -------- | -------- | ----------------------------------------------------------------------------------------- |
-| `MOODLE_URL`             | ✅       | _(none)_ | Base URL of your Moodle instance, no trailing slash. Example: `https://mylms.example.edu` |
-| `MOODLER_CACHE_DISABLED` | ❌       | _unset_  | Set to `1` to disable the local SQLite cache.                                             |
+| Variable                        | Required | Default  | Description                                                                                                                                                     |
+| ------------------------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MOODLE_URL`                    | ✅       | _(none)_ | Base URL of your Moodle instance, no trailing slash. Example: `https://mylms.example.edu`                                                                       |
+| `MOODLER_ALLOW_STUDENT_WRITES`  | ❌       | off      | Registers `submit_assignment`, `post_forum_reply`, `reply_to_conversation`, `mark_notifications_read`, `mark_activity_complete`, `create_calendar_event`.       |
+| `MOODLER_ALLOW_TEACHER_GRADING` | ❌       | off      | Registers `save_assignment_grade` and `grant_extension`.                                                                                                        |
+| `MOODLER_CACHE_DISABLED`        | ❌       | _unset_  | Set to `1` to disable the local SQLite cache.                                                                                                                   |
+
+Flags accept `1`, `true` or `yes`. Tools behind a disabled flag are not registered at all, so your assistant never sees them. Destructive writes ask for confirmation (an approval prompt on clients that support it, otherwise an explicit `confirm=true` argument).
 
 ## Where state lives
 
 All local state is under `~/.moodler-mcp/`:
 
-- `browser_state.json` — Playwright storage state (your cached Moodle session cookie).
+- `token.json` — your Moodle web service token and private token, owner-readable only.
 - `cache.db` — SQLite cache of Moodle API responses. See [caching](#caching).
-- `downloads/` — files fetched by `download_resource`. Exposed back to the MCP client as `downloads:///{filename}` resources.
+- `downloads/` — files fetched by `download_resource`. Exposed back to the MCP client as `downloads://<filename>` resources.
 
 Delete the directory to wipe everything.
 
@@ -135,46 +147,86 @@ Delete the directory to wipe everything.
 
 Moodle reads go through a small SQLite-backed cache so repeated tool calls return instantly. TTLs are per-operation:
 
-| Data                     | TTL    |
-| ------------------------ | ------ |
-| Enrolled course list     | 1 day  |
-| Course sections          | 1 hour |
-| Calendar / deadlines     | 30 min |
-| Assignment participants  | 10 min |
-| Assignment view / status | 10 min |
-| Course module metadata   | 1 day  |
-| Grade report HTML        | 5 min  |
-| Student search           | 15 min |
+| Data                              | TTL    |
+| --------------------------------- | ------ |
+| Enrolled course list              | 1 day  |
+| Course contents                   | 1 hour |
+| Module, page, url, folder lookups | 1 day  |
+| Calendar / deadlines              | 30 min |
+| Assignments, submissions, grades  | 10 min |
+| Grade report, grade overview      | 5 min  |
+| Forums, quizzes                   | 1 hour |
+| Discussions, attempts, completion | 5 min  |
+| Notifications, conversations      | 1 min  |
+| Student search, roster            | 15 min |
 
-Disable with `MOODLER_CACHE_DISABLED=1`, or call the `clear_cache` tool to wipe all or part of the cache (`clear_cache(pattern="get_grade_report_html")` to target a subset).
+Disable with `MOODLER_CACHE_DISABLED=1`, or call the `clear_cache` tool to wipe all or part of the cache (`clear_cache(pattern="grades_table")` to target a subset).
 
 Broken cache reads never fail a tool call — corruption or disk errors are logged and treated as a cache miss.
 
 ## Tools
 
-| Tool                                | For         | Description                                                       |
-| ----------------------------------- | ----------- | ----------------------------------------------------------------- |
-| `list_courses`                      | Students    | List your enrolled Moodle courses.                                |
-| `get_course_contents`               | Students    | Get all sections, activities, and resources in a course.          |
-| `get_module_content`                | Students    | Read any Moodle module page (assignment, folder, URL, page).      |
-| `download_resource`                 | Students    | Download a Moodle file (PDF, DOCX, PPTX…) and return its content. |
-| `read_downloaded_file`              | Students    | Re-read a previously downloaded file from the local cache.        |
-| `get_course_deadlines`              | Students    | List all assignments, quizzes, and deadlines for a course.        |
-| `get_upcoming_deadlines`            | Students    | Upcoming deadlines across all courses, sorted by date.            |
-| `get_assignment_feedback`           | Students    | Your submission status, grade, and feedback for an assignment.    |
-| `get_course_grades`                 | Students    | Scrape your user grade report for a specific course.              |
-| `get_assignment_participants`       | Instructors | List students submitting to an assignment, with status.           |
-| `get_assignment_participant_detail` | Instructors | Detailed submission info for one student on one assignment.       |
-| `search_students`                   | Instructors | Search students enrolled in a course by name.                     |
-| `clear_cache`                       | All         | Clear the local SQLite cache, optionally matching a substring.    |
+Every data tool returns a one-line summary plus structured content matching a declared output schema.
+
+### Reading
+
+| Tool                                | For         | Description                                                                 |
+| ----------------------------------- | ----------- | --------------------------------------------------------------------------- |
+| `login_to_moodle`                   | All         | One-time browser sign-in that stores the web service token.                 |
+| `list_courses`                      | Students    | List your enrolled Moodle courses.                                          |
+| `get_course_contents`               | Students    | Sections, activities and files in a course, with cmids and file URLs.       |
+| `get_module_content`                | Students    | One module: assignment brief and attachments, page text, URL, folder files. |
+| `download_resource`                 | Students    | Download a file and return its content, local path and resource link.       |
+| `read_downloaded_file`              | Students    | Read a file extracted from a downloaded zip.                                |
+| `list_assignments`                  | Students    | Assignments in a course with due dates, brief and attachments.              |
+| `get_course_deadlines`              | Students    | Deadlines for a course.                                                     |
+| `get_upcoming_deadlines`            | Students    | Upcoming deadlines across all courses.                                      |
+| `get_assignment_feedback`           | Students    | Your submission status, grade and feedback for an assignment.               |
+| `get_course_grades`                 | Students    | Your grade report for a course.                                             |
+| `get_grade_overview`                | Students    | Your final grade in every course.                                           |
+| `get_notifications`                 | Students    | Moodle notifications.                                                       |
+| `list_conversations`                | Students    | Your message conversations.                                                 |
+| `get_conversation`                  | Students    | Messages in one conversation.                                               |
+| `list_forums`                       | Students    | Forums in a course.                                                         |
+| `list_discussions`                  | Students    | Discussions in a forum.                                                     |
+| `get_discussion`                    | Students    | Posts in a discussion, with attachments.                                    |
+| `list_quizzes`                      | Students    | Quizzes in a course.                                                        |
+| `get_quiz_attempts`                 | Students    | Your quiz attempts and best grade.                                          |
+| `get_quiz_attempt_review`           | Students    | Review of a finished attempt.                                               |
+| `get_completion_status`             | Students    | Activity and course completion.                                             |
+| `get_calendar`                      | Students    | All calendar events in a month.                                             |
+| `get_calendar_upcoming`             | Students    | Upcoming calendar events.                                                   |
+| `get_grading_summary`               | Instructors | Submission and grading counts for an assignment.                            |
+| `get_grading_table`                 | Instructors | One row per participant with status and grade.                              |
+| `get_assignment_participants`       | Instructors | Participants of an assignment with submission flags.                        |
+| `get_assignment_participant_detail` | Instructors | One participant's submission details.                                       |
+| `search_students`                   | Instructors | Search enrolled users by name or email.                                     |
+| `get_course_roster`                 | Instructors | Every enrolled user with roles and groups.                                  |
+| `get_grade_items`                   | Instructors | Gradebook items in a course.                                                |
+| `clear_cache`                       | All         | Clear the local SQLite cache, optionally matching a substring.              |
+
+### Writes (off by default)
+
+| Tool                      | Flag                            | Description                                                          |
+| ------------------------- | ------------------------------- | -------------------------------------------------------------------- |
+| `submit_assignment`       | `MOODLER_ALLOW_STUDENT_WRITES`  | Upload a file as your submission and submit it for grading.          |
+| `post_forum_reply`        | `MOODLER_ALLOW_STUDENT_WRITES`  | Reply to a forum post.                                               |
+| `reply_to_conversation`   | `MOODLER_ALLOW_STUDENT_WRITES`  | Send a message in an existing conversation.                          |
+| `mark_notifications_read` | `MOODLER_ALLOW_STUDENT_WRITES`  | Mark all notifications read.                                         |
+| `mark_activity_complete`  | `MOODLER_ALLOW_STUDENT_WRITES`  | Tick or untick an activity's completion box.                         |
+| `create_calendar_event`   | `MOODLER_ALLOW_STUDENT_WRITES`  | Create a personal calendar event.                                    |
+| `save_assignment_grade`   | `MOODLER_ALLOW_TEACHER_GRADING` | Record a grade and feedback comment for one student.                 |
+| `grant_extension`         | `MOODLER_ALLOW_TEACHER_GRADING` | Grant a due-date extension to one student.                           |
+
+Quiz attempts, deletions and identity reveals are deliberately not exposed.
 
 ### For instructors (experimental)
 
-The teacher-facing tools (`get_assignment_participants`, `get_assignment_participant_detail`, `search_students`) work but have had significantly less real-world testing than the student-facing flows. Expect rough edges and please [open an issue](https://github.com/GhaithAlHallak8/moodler-mcp/issues) if something breaks — traceback + the AJAX method that failed is enough.
+The teacher-facing tools work but have had significantly less real-world testing than the student-facing flows. Expect rough edges and please [open an issue](https://github.com/GhaithAlHallak8/moodler-mcp/issues) if something breaks — the error text names the Moodle web service function that failed.
 
 ## Privacy
 
-moodler-mcp runs entirely on your machine. It connects only to your Moodle instance and to your AI assistant. No telemetry, no analytics, no outbound connections to any third party. Your Moodle session cookie is stored locally in `~/.moodler-mcp/browser_state.json` and nowhere else. See [PRIVACY.md](PRIVACY.md) for the full statement.
+moodler-mcp runs entirely on your machine. It connects only to your Moodle instance and to your AI assistant. No telemetry, no analytics, no outbound connections to any third party. Your Moodle web service token is stored locally in `~/.moodler-mcp/token.json` and nowhere else. See [PRIVACY.md](PRIVACY.md) for the full statement.
 
 ## Contributing
 

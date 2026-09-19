@@ -1,788 +1,399 @@
-import json
-from datetime import UTC, datetime
+import base64
+import html
+import mimetypes
+import os
+import zipfile
+from typing import Annotated
+from urllib.parse import parse_qs, urlparse
 
-from moodler_mcp.client import download_file, fetch_page
-from moodler_mcp.moodle_api import get_course_sections, list_enrolled_courses
-from moodler_mcp.server import mcp
+from mcp.server.mcpserver import Context, Elicit, Resolve
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import BlobResourceContents, EmbeddedResource, TextContent, ToolAnnotations
+from pydantic import BaseModel
+
+from moodler_mcp import moodle_api as api
+from moodler_mcp.asking import FileChoice
+from moodler_mcp.client import download_file
+from moodler_mcp.config import DOWNLOADS_DIR, EMBED_LIMIT_BYTES, MOODLE_URL
+from moodler_mcp.files import OFFICE_SUFFIXES, file_to_content
+from moodler_mcp.results import can_ask, is_local_file_client, iso, result, strip_html
+from moodler_mcp.server import mcp, register_download
+
+READ = ToolAnnotations(
+    read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
 
 
-def _format_course(c: dict) -> dict:
-    result = {
-        "id": c["id"],
-        "fullname": c.get("fullname", ""),
-        "shortname": c.get("shortname", ""),
-        "category": c.get("coursecategory", ""),
-    }
-    if c.get("startdate"):
-        result["startdate"] = datetime.fromtimestamp(c["startdate"], tz=UTC).isoformat()
-    if c.get("enddate") and c["enddate"] != 0:
-        result["enddate"] = datetime.fromtimestamp(c["enddate"], tz=UTC).isoformat()
-    return result
+class Course(BaseModel):
+    id: int
+    fullname: str
+    shortname: str
+    category: str
+    startdate: str | None
+    enddate: str | None
+    progress: float | None
+    url: str
 
 
-@mcp.tool()
-async def list_courses(classification: str = "all", limit: int = 50) -> str:
-    """List your enrolled Moodle courses.
+class CourseList(BaseModel):
+    total: int
+    courses: list[Course]
+
+
+class FileRef(BaseModel):
+    filename: str
+    url: str
+    size: int
+    mimetype: str | None
+    modified: str | None
+
+
+class Module(BaseModel):
+    cmid: int
+    name: str
+    modname: str
+    instance: int
+    url: str | None
+    description: str
+    visible: bool
+    completion: int
+    dates: list[str]
+    files: list[FileRef]
+
+
+class Section(BaseModel):
+    id: int
+    name: str
+    summary: str
+    visible: bool
+    modules: list[Module]
+
+
+class CourseContents(BaseModel):
+    course_id: int
+    sections: list[Section]
+
+
+class ModuleContent(BaseModel):
+    cmid: int
+    course_id: int
+    modname: str
+    instance: int
+    name: str
+    description: str
+    content: str | None
+    external_url: str | None
+    due: str | None
+    files: list[FileRef]
+
+
+def _file_ref(c: dict) -> FileRef:
+    return FileRef(
+        filename=c.get("filename", ""),
+        url=c.get("fileurl", ""),
+        size=int(c.get("filesize") or 0),
+        mimetype=c.get("mimetype"),
+        modified=iso(c.get("timemodified")),
+    )
+
+
+def _module(m: dict) -> Module:
+    return Module(
+        cmid=m["id"],
+        name=html.unescape(m.get("name", "")),
+        modname=m.get("modname", ""),
+        instance=int(m.get("instance") or 0),
+        url=m.get("url"),
+        description=strip_html(m.get("description")),
+        visible=bool(m.get("uservisible", m.get("visible", 1))),
+        completion=int(m.get("completion") or 0),
+        dates=[
+            f"{d.get('label', '')} {iso(d.get('timestamp')) or ''}".strip()
+            for d in m.get("dates", [])
+        ],
+        files=[_file_ref(c) for c in m.get("contents", []) if c.get("type") == "file"],
+    )
+
+
+def cmid_from(url_or_id: str | int) -> int:
+    if isinstance(url_or_id, int) or str(url_or_id).isdigit():
+        return int(url_or_id)
+    query = parse_qs(urlparse(str(url_or_id)).query)
+    if "id" not in query:
+        raise ToolError(f"No course module id in {url_or_id}")
+    return int(query["id"][0])
+
+
+async def module_files(course_id: int, cmid: int) -> list[FileRef]:
+    for section in await api.course_contents(course_id=course_id):
+        for m in section.get("modules", []):
+            if m["id"] == cmid:
+                return [_file_ref(c) for c in m.get("contents", []) if c.get("type") == "file"]
+    return []
+
+
+@mcp.tool(title="List courses", annotations=READ)
+async def list_courses(classification: str = "inprogress", limit: int = 50) -> CourseList:
+    """List your enrolled Moodle courses. Defaults to the courses currently in progress;
+    pass classification='past' for earlier semesters or 'all' for everything.
 
     Args:
-        classification: Filter by 'all', 'inprogress', 'past', or 'future'
+        classification: 'inprogress' (default), 'past', 'future' or 'all'
         limit: Max number of courses to return (max 50)
     """
     limit = min(limit, 50)
-    data = await list_enrolled_courses(
-        classification=classification,
-        limit=limit,
-    )
-    courses = [_format_course(c) for c in data.get("courses", [])]
-    return json.dumps({"total": len(courses), "courses": courses}, indent=2)
-
-
-@mcp.tool()
-async def get_course_contents(course_id: int) -> str:
-    """Get all sections, activities, and resources within a course.
-
-    Args:
-        course_id: The Moodle course ID
-    """
-    sections = await get_course_sections(course_id=course_id)
-    return json.dumps(sections, indent=2)
-
-
-_TEXT_SUFFIXES = {
-    ".py",
-    ".txt",
-    ".csv",
-    ".tsv",
-    ".json",
-    ".jsonl",
-    ".ndjson",
-    ".ipynb",
-    ".md",
-    ".rst",
-    ".log",
-    ".html",
-    ".htm",
-    ".xml",
-    ".svg",
-    ".yaml",
-    ".yml",
-    ".java",
-    ".c",
-    ".cc",
-    ".cpp",
-    ".cxx",
-    ".h",
-    ".hpp",
-    ".js",
-    ".jsx",
-    ".ts",
-    ".tsx",
-    ".mjs",
-    ".cjs",
-    ".css",
-    ".scss",
-    ".sass",
-    ".less",
-    ".sql",
-    ".r",
-    ".rs",
-    ".go",
-    ".rb",
-    ".php",
-    ".swift",
-    ".kt",
-    ".kts",
-    ".scala",
-    ".lua",
-    ".pl",
-    ".pm",
-    ".dart",
-    ".ex",
-    ".exs",
-    ".erl",
-    ".hs",
-    ".clj",
-    ".fs",
-    ".ml",
-    ".tex",
-    ".bib",
-    ".ini",
-    ".cfg",
-    ".conf",
-    ".toml",
-    ".env",
-    ".sh",
-    ".bash",
-    ".zsh",
-    ".fish",
-    ".ps1",
-    ".bat",
-}
-
-_IMAGE_MIME = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-}
-
-_OFFICE_SUFFIXES = {
-    ".docx",
-    ".docm",
-    ".dotx",
-    ".dotm",
-    ".xlsx",
-    ".xlsm",
-    ".xltx",
-    ".xltm",
-    ".pptx",
-    ".pptm",
-    ".potx",
-    ".potm",
-    ".odt",
-    ".ods",
-    ".odp",
-}
-
-_DOCX_EXTS = {".docx", ".docm", ".dotx", ".dotm"}
-_PPTX_EXTS = {".pptx", ".pptm", ".potx", ".potm"}
-_XLSX_EXTS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
-
-_EMBEDDED_IMAGE_MIME = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-    ".bmp": "image/bmp",
-}
-
-MAX_TEXT_BYTES = 1_000_000  # ~250K tokens
-MAX_IMAGE_BYTES = 5_000_000
-MAX_EMBEDDED_IMAGE_BYTES = 400_000
-MAX_PDF_PAGES = 30
-MAX_PPTX_SLIDES = 30
-MAX_XLSX_SHEETS = 10
-# Host MCP clients cap tool results at 1MB; keep image bytes well below the cap.
-PDF_RESPONSE_BUDGET_BYTES = 650_000
-PDF_RENDER_DPI = 110  # lower DPI = smaller output; 110 keeps text readable
-PDF_JPEG_QUALITY = 75
-
-
-def _extract_docx_markdown(filepath: str) -> str:
-    """Extract a .docx as GitHub-flavored markdown via pandoc.
-
-    Uses `pypandoc-binary`, which bundles pandoc as a wheel — no system
-    install required. Headings, lists, tables, math blocks, and tracked
-    changes are preserved; figures become image references, inlined
-    separately by `_extract_docx_images`.
-    """
-    import pypandoc
-
-    return pypandoc.convert_file(
-        filepath,
-        "gfm",
-        format="docx",
-        extra_args=["--track-changes=all", "--wrap=none"],
-    )
-
-
-def _extract_docx_images(filepath: str, budget_remaining: int) -> tuple[list, int]:
-    """Pull embedded images out of a .docx and return them as ImageContent blocks.
-
-    The .docx zip stores pictures under `word/media/`. We emit them in the
-    order they appear there, stopping once `budget_remaining` bytes are used.
-    Returns `(blocks, bytes_used)`.
-    """
-    import base64
-    import os as _os
-    import zipfile
-
-    from mcp.types import ImageContent
-
-    blocks: list = []
-    used = 0
-    with zipfile.ZipFile(filepath) as z:
-        names = sorted(n for n in z.namelist() if n.startswith("word/media/"))
-        for name in names:
-            ext = _os.path.splitext(name)[1].lower()
-            mime = _EMBEDDED_IMAGE_MIME.get(ext)
-            if not mime:
-                continue
-            blob = z.read(name)
-            if len(blob) > MAX_EMBEDDED_IMAGE_BYTES:
-                continue
-            if used + len(blob) > budget_remaining:
-                break
-            used += len(blob)
-            blocks.append(
-                ImageContent(
-                    type="image",
-                    data=base64.b64encode(blob).decode(),
-                    mimeType=mime,
-                )
-            )
-    return blocks, used
-
-
-def _extract_pptx_blocks(filepath: str, budget: int, pages: str | None = None) -> list:
-    """Return interleaved text + image blocks for a .pptx using python-pptx.
-
-    One TextContent per slide (title + body text + speaker notes if present),
-    followed by any ImageContent blocks for pictures on that slide. Image
-    bytes are tracked against `budget`; once exhausted, later pictures are
-    skipped and counted in the trailing summary.
-
-    Args:
-        filepath: path to the .pptx file.
-        budget: maximum total image bytes to include.
-        pages: 1-indexed slide selection like "1-5,7" (parity with PDF
-            `pages`). None → first `MAX_PPTX_SLIDES` slides.
-    """
-    import base64
-
-    from mcp.types import ImageContent, TextContent
-    from pptx import Presentation
-
-    prs = Presentation(filepath)
-    all_slides = list(prs.slides)
-    total = len(all_slides)
-
-    if pages:
-        indices = _parse_pages(pages, total)
-        truncated_by_cap = False
-    else:
-        indices = list(range(min(total, MAX_PPTX_SLIDES)))
-        truncated_by_cap = total > MAX_PPTX_SLIDES
-
-    blocks: list = []
-    used = 0
-    skipped_images = 0
-
-    for idx in indices:
-        slide = all_slides[idx]
-        slide_no = idx + 1
-        lines: list[str] = [f"## Slide {slide_no}"]
-        images: list[tuple[bytes, str]] = []
-
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                for para in shape.text_frame.paragraphs:
-                    text = "".join(run.text for run in para.runs).strip()
-                    if text:
-                        lines.append(text)
-            try:
-                img = shape.image
-            except AttributeError, ValueError:
-                continue
-            images.append((img.blob, img.content_type or "image/png"))
-
-        if slide.has_notes_slide:
-            notes = slide.notes_slide.notes_text_frame.text.strip()
-            if notes:
-                lines.append(f"_Notes: {notes}_")
-
-        blocks.append(TextContent(type="text", text="\n\n".join(lines)))
-
-        for blob, mime in images:
-            if len(blob) > MAX_EMBEDDED_IMAGE_BYTES or used + len(blob) > budget:
-                skipped_images += 1
-                continue
-            used += len(blob)
-            blocks.append(
-                ImageContent(
-                    type="image",
-                    data=base64.b64encode(blob).decode(),
-                    mimeType=mime,
-                )
-            )
-
-    if truncated_by_cap:
-        blocks.append(
-            TextContent(
-                type="text",
-                text=(
-                    f"[TRUNCATED — showing first {MAX_PPTX_SLIDES} of "
-                    f"{total} slides. Call again with "
-                    f"pages='{MAX_PPTX_SLIDES + 1}-{total}' for the rest.]"
-                ),
-            )
+    data = await api.enrolled_courses(classification=classification, limit=limit)
+    courses = [
+        Course(
+            id=c["id"],
+            fullname=html.unescape(c.get("fullname", "")),
+            shortname=html.unescape(c.get("shortname", "")),
+            category=html.unescape(c.get("coursecategory", "")),
+            startdate=iso(c.get("startdate")),
+            enddate=iso(c.get("enddate")),
+            progress=c.get("progress") if c.get("hasprogress") else None,
+            url=c.get("viewurl", f"{MOODLE_URL}/course/view.php?id={c['id']}"),
         )
-    if skipped_images:
+        for c in data.get("courses", [])
+    ]
+    return result(
+        f"{len(courses)} course(s), classification={classification}.",
+        CourseList(total=len(courses), courses=courses),
+    )
+
+
+@mcp.tool(title="Course contents", annotations=READ)
+async def get_course_contents(course_id: int) -> CourseContents:
+    """Get all sections, activities and files in a course, with course module ids (cmid)
+    and direct file URLs for download_resource.
+
+    Args:
+        course_id: The Moodle course id
+    """
+    sections = [
+        Section(
+            id=s["id"],
+            name=html.unescape(s.get("name", "")),
+            summary=strip_html(s.get("summary")),
+            visible=bool(s.get("uservisible", s.get("visible", 1))),
+            modules=[_module(m) for m in s.get("modules", [])],
+        )
+        for s in await api.course_contents(course_id=course_id)
+    ]
+    count = sum(len(s.modules) for s in sections)
+    return result(
+        f"{len(sections)} section(s), {count} module(s).",
+        CourseContents(course_id=course_id, sections=sections),
+    )
+
+
+async def _assignment_for(course_id: int, cmid: int) -> dict | None:
+    data = await api.assignments(course_id=course_id)
+    for course in data.get("courses", []):
+        for a in course.get("assignments", []):
+            if a.get("cmid") == cmid:
+                return a
+    return None
+
+
+@mcp.tool(title="Module content", annotations=READ)
+async def get_module_content(url: str | None = None, cmid: int | None = None) -> ModuleContent:
+    """Get the content of one course module: assignment brief and attachments, page text,
+    external URL, folder or resource files. Pass either the module URL or its cmid.
+    For plain downloads call download_resource directly with the file URL.
+
+    Args:
+        url: Module URL such as '/mod/assign/view.php?id=570007'
+        cmid: Course module id, alternative to url
+    """
+    if cmid is None:
+        if url is None:
+            raise ToolError("Pass url or cmid")
+        cmid = cmid_from(url)
+    cm = (await api.course_module(cmid=cmid))["cm"]
+    course_id, modname, instance = int(cm["course"]), cm["modname"], int(cm["instance"])
+    files = await module_files(course_id, cmid)
+    content: str | None = None
+    external: str | None = None
+    due: str | None = None
+    description = ""
+    if modname == "assign":
+        a = await _assignment_for(course_id, cmid)
+        if a:
+            description = strip_html(a.get("intro"))
+            due = iso(a.get("duedate"))
+            files = [_file_ref(f) for f in a.get("introattachments", [])] + files
+    elif modname == "page":
+        for p in (await api.pages_by_course(course_id=course_id)).get("pages", []):
+            if p.get("coursemodule") == cmid:
+                description = strip_html(p.get("intro"))
+                content = strip_html(p.get("content"))
+                files = [_file_ref(f) for f in p.get("contentfiles", [])] + files
+    elif modname == "url":
+        for u in (await api.urls_by_course(course_id=course_id)).get("urls", []):
+            if u.get("coursemodule") == cmid:
+                description = strip_html(u.get("intro"))
+                external = u.get("externalurl")
+    elif modname == "folder":
+        for f in (await api.folders_by_course(course_id=course_id)).get("folders", []):
+            if f.get("coursemodule") == cmid:
+                description = strip_html(f.get("intro"))
+    elif modname == "resource":
+        for r in (await api.resources_by_course(course_id=course_id)).get("resources", []):
+            if r.get("coursemodule") == cmid:
+                description = strip_html(r.get("intro"))
+                files = [_file_ref(f) for f in r.get("contentfiles", [])] or files
+    data = ModuleContent(
+        cmid=cmid,
+        course_id=course_id,
+        modname=modname,
+        instance=instance,
+        name=html.unescape(cm.get("name", "")),
+        description=description,
+        content=content,
+        external_url=external,
+        due=due,
+        files=files,
+    )
+    return result(f"{modname} '{data.name}' with {len(files)} file(s).", data)
+
+
+def _zip_listing(filepath: str) -> list[TextContent]:
+    filename = os.path.basename(filepath)
+    extract_dir = os.path.join(os.path.dirname(filepath), os.path.splitext(filename)[0])
+    os.makedirs(extract_dir, exist_ok=True)
+    with zipfile.ZipFile(filepath) as zf:
+        zf.extractall(extract_dir)
+    os.remove(filepath)
+    lines = [
+        f"# {filename} (zip archive; choose files to load)",
+        "Use read_downloaded_file(path=...) with one of:",
+        "",
+    ]
+    for root, _, names in os.walk(extract_dir):
+        for name in sorted(names):
+            fpath = os.path.join(root, name)
+            rel = os.path.relpath(fpath, DOWNLOADS_DIR)
+            lines.append(f"- `{rel}` ({os.path.getsize(fpath)} bytes)")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _resolve_download_url(url: str) -> str | list[FileRef]:
+    if "pluginfile.php" in url:
+        return url
+    path = urlparse(url).path
+    if "/mod/" not in path or "view.php" not in path:
+        return url
+    cmid = cmid_from(url)
+    cm = (await api.course_module(cmid=cmid))["cm"]
+    files = await module_files(int(cm["course"]), cmid)
+    if not files:
+        raise ToolError(f"Module {cmid} ({cm.get('modname')}) has no downloadable files")
+    if len(files) == 1:
+        return files[0].url
+    return files
+
+
+async def _choose_file(
+    ctx: Context, url: str, choice: str | None = None
+) -> Elicit[FileChoice] | FileChoice | None:
+    if choice:
+        return FileChoice(filename=choice)
+    if not can_ask(ctx):
+        return None
+    target = await _resolve_download_url(url)
+    if not isinstance(target, list):
+        return None
+    names = "\n".join(f"- {f.filename} ({f.size} bytes)" for f in target)
+    return Elicit(f"This module has several files. Which one?\n{names}", FileChoice)
+
+
+def _delivery_blocks(filepath: str, ctx: Context | None) -> list:
+    uri = register_download(filepath)
+    blocks: list = [TextContent(type="text", text=f"Saved to: {filepath}\nResource: {uri}")]
+    size = os.path.getsize(filepath)
+    if is_local_file_client(ctx) and size <= EMBED_LIMIT_BYTES:
+        mime = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
+        with open(filepath, "rb") as fh:
+            blob = base64.b64encode(fh.read()).decode()
         blocks.append(
-            TextContent(
-                type="text",
-                text=(
-                    f"[{skipped_images} image(s) omitted — per-image size cap "
-                    f"or response budget reached.]"
-                ),
+            EmbeddedResource(
+                type="resource", resource=BlobResourceContents(uri=uri, mime_type=mime, blob=blob)
             )
         )
     return blocks
 
 
-def _extract_xlsx_markdown(
-    filepath: str,
+@mcp.tool(title="Download resource", annotations=READ, structured_output=False)
+async def download_resource(
+    url: str,
     pages: str | None = None,
-    max_rows_per_sheet: int = 200,
-) -> str:
-    """Render sheets of an .xlsx as markdown tables using openpyxl.
+    choice: str | None = None,
+    ctx: Context | None = None,
+    picked: Annotated[FileChoice | None, Resolve(_choose_file)] = None,
+) -> list:
+    """Download a Moodle file and return its content plus the local file path.
 
-    Skips images (spreadsheets rarely use embedded pictures for meaning).
-    Truncates each sheet to `max_rows_per_sheet` rows.
+    Accepts a pluginfile URL (from get_course_contents or get_module_content) or a
+    '/mod/resource/view.php?id=...' or '/mod/folder/view.php?id=...' URL. A folder with
+    several files returns the list of files to choose from; pass choice=<filename> or the
+    file URL to download one of them.
 
-    Args:
-        filepath: path to the .xlsx file.
-        pages: 1-indexed sheet selection like "1-3,5" (parity with PDF
-            `pages`). None → first `MAX_XLSX_SHEETS` sheets.
-        max_rows_per_sheet: per-sheet row cap.
-    """
-    from openpyxl import load_workbook
-
-    wb = load_workbook(filepath, data_only=True, read_only=True)
-    try:
-        all_sheets = wb.worksheets
-        total = len(all_sheets)
-
-        if pages:
-            indices = _parse_pages(pages, total)
-            truncated_by_cap = False
-        else:
-            indices = list(range(min(total, MAX_XLSX_SHEETS)))
-            truncated_by_cap = total > MAX_XLSX_SHEETS
-
-        parts: list[str] = []
-        for idx in indices:
-            ws = all_sheets[idx]
-            rows: list[tuple] = []
-            for i, row in enumerate(ws.iter_rows(values_only=True)):
-                if i >= max_rows_per_sheet:
-                    break
-                rows.append(row)
-
-            max_cols = max((len(r) for r in rows), default=0)
-
-            def col_empty(col: int, rows=rows) -> bool:
-                return all(col >= len(r) or r[col] is None for r in rows)
-
-            while max_cols > 0 and col_empty(max_cols - 1):
-                max_cols -= 1
-
-            parts.append(f"## Sheet: {ws.title}")
-            if max_cols == 0 or not rows:
-                parts.append("_(empty)_")
-                continue
-
-            def fmt(v: object) -> str:
-                if v is None:
-                    return ""
-                return str(v).replace("|", "\\|").replace("\n", " ")
-
-            def row_line(r: tuple, n: int = max_cols) -> str:
-                cells = [fmt(r[i]) if i < len(r) else "" for i in range(n)]
-                return "| " + " | ".join(cells) + " |"
-
-            lines = [row_line(rows[0]), "| " + " | ".join(["---"] * max_cols) + " |"]
-            for r in rows[1:]:
-                lines.append(row_line(r))
-
-            if ws.max_row and ws.max_row > max_rows_per_sheet:
-                lines.append(
-                    f"\n_[TRUNCATED — showing first {max_rows_per_sheet} of {ws.max_row} rows]_"
-                )
-            parts.append("\n".join(lines))
-
-        if truncated_by_cap:
-            parts.append(
-                f"_[TRUNCATED — showing first {MAX_XLSX_SHEETS} of "
-                f"{total} sheets. Call again with "
-                f"pages='{MAX_XLSX_SHEETS + 1}-{total}' for the rest.]_"
-            )
-        return "\n\n".join(parts)
-    finally:
-        wb.close()
-
-
-def _parse_pages(pages: str | None, total: int) -> list[int]:
-    """Parse a page range string like '1-5,7,9-11' into a sorted list of 0-indexed ints.
-
-    Returns all pages if `pages` is None or empty.
-    """
-    if not pages:
-        return list(range(total))
-    result: set[int] = set()
-    for part in pages.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if "-" in part:
-            start, end = part.split("-", 1)
-            for p in range(int(start), int(end) + 1):
-                if 1 <= p <= total:
-                    result.add(p - 1)
-        else:
-            p = int(part)
-            if 1 <= p <= total:
-                result.add(p - 1)
-    return sorted(result)
-
-
-def _file_to_content(
-    filepath: str,
-    pages: str | None = None,
-    display_path: str | None = None,
-):
-    """Convert a file to MCP content blocks Claude.ai can render.
+    Content handling: text files as text (max 1MB), images inline (max 5MB), PDFs as page
+    images (default first 30 pages; use pages like '1-5,7'), zips as a file listing for
+    read_downloaded_file, .docx as markdown plus images, .pptx as one block per slide,
+    .xlsx as markdown tables. Other binaries return only the local path. On local clients
+    the file itself is attached as a resource.
 
     Args:
-        filepath: Path to the file
-        pages: For PDFs only — page range like "1-5,7" (1-indexed). None = first MAX_PDF_PAGES.
-        display_path: Path shown to the user in headers. Used when the real
-            `filepath` is a temp conversion artifact but we want the original
-            file's path to appear in the response.
-
-    Returns either a single content block or a list (for PDFs with multiple pages).
+        url: Moodle file, resource or folder URL
+        pages: 1-indexed page, slide or sheet selection like '1-5,7,10-12'
+        choice: Filename to pick when the URL is a folder with several files
     """
-    import base64
-    import os as _os
-
-    from mcp.types import ImageContent, TextContent
-
-    shown_path = display_path or filepath
-    filename = _os.path.basename(shown_path)
-    ext = _os.path.splitext(filepath)[1].lower()
-    size = _os.path.getsize(filepath)
-
-    if ext in _TEXT_SUFFIXES:
-        truncated = False
-        with open(filepath, errors="replace") as f:
-            text = f.read(MAX_TEXT_BYTES + 1)
-        if len(text) > MAX_TEXT_BYTES:
-            text = text[:MAX_TEXT_BYTES]
-            truncated = True
-        header = f"# {filename}\nLocal path: {shown_path}"
-        if truncated:
-            header += (
-                f"\n[TRUNCATED — showing first {MAX_TEXT_BYTES} of {size} bytes. "
-                f"Use your host's local file reader on the path above for the full file.]"
-            )
-        return TextContent(type="text", text=f"{header}\n\n{text}")
-
-    if ext in _IMAGE_MIME:
-        if size > MAX_IMAGE_BYTES:
-            return TextContent(
-                type="text",
-                text=f"# {filename}\n[Image too large: {size} bytes > {MAX_IMAGE_BYTES} limit]",
-            )
-        with open(filepath, "rb") as f:
-            data = base64.b64encode(f.read()).decode()
-        return ImageContent(type="image", data=data, mimeType=_IMAGE_MIME[ext])
-
-    if ext == ".pdf":
-        import pymupdf
-
-        doc = pymupdf.open(filepath)
-        total_pages = len(doc)
-
-        if pages:
-            page_indices = _parse_pages(pages, total_pages)
-            header = (
-                f"# {filename} ({total_pages} pages, rendering: {pages})\nLocal path: {shown_path}"
-            )
-        else:
-            page_indices = list(range(min(total_pages, MAX_PDF_PAGES)))
-            header = f"# {filename} ({total_pages} pages)\nLocal path: {shown_path}"
-            if len(page_indices) < total_pages:
-                header += (
-                    f"\n[TRUNCATED — rendering first {len(page_indices)} of {total_pages} pages. "
-                    f"Call again with pages='X-Y' to get specific pages.]"
-                )
-
-        blocks: list = [TextContent(type="text", text=header)]
-        # Fit as many requested pages as possible into the response budget.
-        # JPEG is much smaller than PNG for document scans / dense text.
-        used = 0
-        rendered = 0
-        skipped_first: int | None = None
-        for i in page_indices:
-            pix = doc[i].get_pixmap(dpi=PDF_RENDER_DPI)
-            img_bytes = pix.tobytes("jpeg", jpg_quality=PDF_JPEG_QUALITY)
-            if used + len(img_bytes) > PDF_RESPONSE_BUDGET_BYTES and rendered > 0:
-                skipped_first = i + 1  # 1-indexed page number
-                break
-            used += len(img_bytes)
-            rendered += 1
-            blocks.append(
-                ImageContent(
-                    type="image",
-                    data=base64.b64encode(img_bytes).decode(),
-                    mimeType="image/jpeg",
-                )
-            )
-        doc.close()
-        if skipped_first is not None:
-            last_rendered = page_indices[rendered - 1] + 1
-            blocks.append(
-                TextContent(
-                    type="text",
-                    text=(
-                        f"[TRUNCATED — fit {rendered} pages into the response "
-                        f"size budget. Rendered through page {last_rendered}. "
-                        f"Call again with pages='{skipped_first}-...' to get "
-                        f"the next pages.]"
-                    ),
-                )
-            )
-        return blocks
-
-    if ext in _DOCX_EXTS:
-        md = _extract_docx_markdown(filepath)
-        truncated = len(md) > MAX_TEXT_BYTES
-        if truncated:
-            md = md[:MAX_TEXT_BYTES]
-        header = f"# {filename}\nLocal path: {shown_path}"
-        if truncated:
-            header += f"\n[TRUNCATED — showing first {MAX_TEXT_BYTES} chars of extracted markdown.]"
-        text_block = TextContent(type="text", text=f"{header}\n\n{md}")
-        image_budget = max(0, PDF_RESPONSE_BUDGET_BYTES - len(text_block.text))
-        blocks = [text_block]
-        image_blocks, _ = _extract_docx_images(
-            filepath,
-            budget_remaining=image_budget,
-        )
-        blocks.extend(image_blocks)
-        return blocks
-
-    if ext in _PPTX_EXTS:
-        header = f"# {filename}\nLocal path: {shown_path}"
-        header_block = TextContent(type="text", text=header)
-        image_budget = max(0, PDF_RESPONSE_BUDGET_BYTES - len(header))
-        blocks = [header_block]
-        blocks.extend(_extract_pptx_blocks(filepath, budget=image_budget, pages=pages))
-        return blocks
-
-    if ext in _XLSX_EXTS:
-        md = _extract_xlsx_markdown(filepath, pages=pages)
-        truncated = len(md) > MAX_TEXT_BYTES
-        if truncated:
-            md = md[:MAX_TEXT_BYTES]
-        header = f"# {filename}\nLocal path: {shown_path}"
-        if truncated:
-            header += f"\n[TRUNCATED — showing first {MAX_TEXT_BYTES} chars of extracted markdown.]"
-        return TextContent(type="text", text=f"{header}\n\n{md}")
-
-    return TextContent(
-        type="text",
-        text=(
-            f"# {filename}\n"
-            f"Size: {size} bytes\n"
-            f"Absolute path on the user's local machine: {shown_path}\n"
-            f"\n"
-            f"This is a SINGLE BINARY FILE saved at the absolute path above;\n"
-            f"the server did not extract it. Do NOT call `read_downloaded_file`\n"
-            f"on it — that tool is only for paths returned by a previous\n"
-            f"zip-listing response.\n"
-            f"\n"
-            f"If your host agent has a local file-read tool (Claude Code,\n"
-            f"Cursor, Cline, Continue, Aider and similar all ship one), call\n"
-            f"it on the absolute path above. Otherwise, ask the user to\n"
-            f"upload or paste the relevant content."
-        ),
-    )
+    target = await _resolve_download_url(url)
+    if isinstance(target, list):
+        wanted = (picked.filename if picked else None) or choice
+        match = next((f for f in target if f.filename == wanted), None)
+        if match is None:
+            lines = [
+                "Several files in this module; call again with choice=<filename> or a file URL:"
+            ]
+            lines += [f"- {f.filename} ({f.size} bytes): {f.url}" for f in target]
+            return [TextContent(type="text", text="\n".join(lines))]
+        target = match.url
+    if ctx is not None:
+        await ctx.report_progress(1, 3, "Downloading")
+    filepath = await download_file(target)
+    if ctx is not None:
+        await ctx.report_progress(2, 3, "Extracting")
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext not in OFFICE_SUFFIXES and zipfile.is_zipfile(filepath):
+        blocks = _zip_listing(filepath)
+    else:
+        blocks = file_to_content(filepath, pages=pages)
+        blocks.extend(_delivery_blocks(filepath, ctx))
+    if ctx is not None:
+        await ctx.report_progress(3, 3, "Done")
+        await ctx.notify_resources_changed()
+    return blocks
 
 
-@mcp.tool()
-async def download_resource(url: str, pages: str | None = None):
-    """Download a Moodle file and return its content.
-
-    Accepts either a direct pluginfile URL OR a `/mod/resource/view.php?id=...`
-    URL — redirects are followed automatically. For any module of type
-    "resource" from `get_course_contents`, call this tool directly with the
-    module's URL. Do NOT call `get_module_content` on resource URLs first;
-    those pages 303-redirect straight to the file and will error.
-
-    - Text files: returned as text (max 1MB, truncated if larger)
-    - Images (png/jpg/gif/webp): returned inline (max 5MB)
-    - PDFs: rasterized to JPEG images. Default = first 30 pages, but fewer
-      may be returned to fit the host tool-result size cap — the response
-      will tell you the next page to request if truncated.
-      Use `pages` to select specific pages (e.g. "1-5,7,10-12").
-    - Zips: extracted but NOT auto-loaded — returns a file listing instead.
-      Use `read_downloaded_file` to load specific files from the zip.
-    - Word docs (.docx/.docm): text converted to GitHub-flavored markdown
-      via pandoc (headings, lists, tables, tracked changes, math blocks),
-      plus embedded images from `word/media/` inlined as image blocks.
-      `pages` is ignored for .docx (no natural pagination).
-    - PowerPoint (.pptx/.pptm): one text block per slide (title, body,
-      speaker notes) followed by that slide's pictures as image blocks.
-      Default = first 30 slides; use `pages` to pick specific slides
-      (e.g. "1-10,15").
-    - Excel (.xlsx/.xlsm): each selected sheet as a markdown table (first
-      200 rows per sheet). Default = first 10 sheets; use `pages` to pick
-      specific sheets by 1-indexed position (e.g. "1,3-4").
-    - ODF formats (.odt/.ods/.odp) and other binaries: returned as a
-      pointer notice with the file's absolute path.
+@mcp.tool(title="Read downloaded file", annotations=READ, structured_output=False)
+async def read_downloaded_file(
+    path: str, pages: str | None = None, ctx: Context | None = None
+) -> list:
+    """Read a file from the local downloads directory. Only use paths listed by a prior
+    download_resource zip listing, copied verbatim.
 
     Args:
-        url: Moodle resource or pluginfile URL
-        pages: 1-indexed selection like "1-5,7,10-12". Meaning depends on
-            format: PDF pages, .pptx slides, or .xlsx sheet positions.
-            Ignored for .docx and non-paginated formats.
+        path: Relative path under the downloads dir from a zip listing
+        pages: 1-indexed selection like '1-5,7' for PDF pages, slides or sheets
     """
-    import os as _os
-    import zipfile
-
-    from mcp.types import TextContent
-
-    filepath = await download_file(url)
-    filename = _os.path.basename(filepath)
-
-    # this is because office formats are technically zip containers
-    ext = _os.path.splitext(filename)[1].lower()
-    is_office = ext in _OFFICE_SUFFIXES
-
-    if not is_office and zipfile.is_zipfile(filepath):
-        extract_dir = _os.path.join(_os.path.dirname(filepath), _os.path.splitext(filename)[0])
-        _os.makedirs(extract_dir, exist_ok=True)
-        with zipfile.ZipFile(filepath) as zf:
-            zf.extractall(extract_dir)
-        _os.remove(filepath)
-
-        listing_lines = [f"# {filename} (zip archive — choose files to load)"]
-        listing_lines.append("Use `read_downloaded_file(path=...)` with one of these paths:")
-        listing_lines.append("")
-        for root, _, names in _os.walk(extract_dir):
-            for name in sorted(names):
-                fpath = _os.path.join(root, name)
-                rel = _os.path.relpath(fpath, _os.path.dirname(filepath))
-                size = _os.path.getsize(fpath)
-                listing_lines.append(f"- `{rel}` ({size} bytes)")
-
-        return [TextContent(type="text", text="\n".join(listing_lines))]
-
-    content = _file_to_content(filepath, pages=pages)
-    if isinstance(content, list):
-        return content
-    return [content]
-
-
-@mcp.tool()
-async def read_downloaded_file(path: str, pages: str | None = None):
-    """Read a previously downloaded file from the local downloads directory.
-
-    ONLY use this after `download_resource` returned a zip-listing response
-    (a "zip archive — choose files to load" header with bullet-listed paths).
-    Pass one of those exact listed paths verbatim — do NOT invent, modify,
-    or guess paths.
-
-    Do NOT use this tool for any path not literally present in a prior zip
-    listing. Office documents are not extracted as zip trees — call
-    `download_resource` on their URL instead; it handles .docx/.pptx/.xlsx
-    content directly.
-
-    Args:
-        path: Relative path under the downloads dir, copied verbatim from a
-            zip listing returned by `download_resource`.
-        pages: 1-indexed selection like "1-5,7" — PDF pages, .pptx slides,
-            or .xlsx sheet positions. Ignored for other formats.
-    """
-    import os as _os
-
-    from moodler_mcp.client import DOWNLOADS_DIR
-
-    # Security: prevent path traversal
     if ".." in path or path.startswith("/"):
-        raise ValueError("Invalid path")
-
-    filepath = _os.path.join(DOWNLOADS_DIR, path)
-    if not _os.path.exists(filepath):
-        raise FileNotFoundError(f"Not found: {path}")
-
-    content = _file_to_content(filepath, pages=pages)
-    if isinstance(content, list):
-        return content
-    return [content]
-
-
-@mcp.tool()
-async def get_module_content(url: str) -> str:
-    """Get content from a Moodle module page (assignment, folder, URL, page, etc).
-
-    Extracts files, links, and descriptions from any Moodle module page.
-    Use download_resource to download individual files from the results.
-
-    IMPORTANT: Do NOT call this on `/mod/resource/view.php?id=...` URLs
-    (modules of type "resource" from `get_course_contents`). Those pages
-    303-redirect directly to the underlying file and have no HTML content
-    to scrape — call `download_resource(url)` on the resource URL instead.
-    This tool is for `/mod/assign/`, `/mod/folder/`, `/mod/url/`, `/mod/page/`,
-    and similar wrapper pages.
-
-    Args:
-        url: Moodle module URL (e.g. '/mod/assign/view.php?id=570007')
-    """
-    from urllib.parse import urlparse
-
-    from bs4 import BeautifulSoup
-
-    if not url.startswith("http"):
-        from moodler_mcp.config import MOODLE_URL as base
-
-        url = f"{base}{url}"
-
-    parsed = urlparse(url)
-    path = parsed.path
-    html = await fetch_page(f"{parsed.path}?{parsed.query}" if parsed.query else parsed.path)
-    soup = BeautifulSoup(html, "html.parser")
-
-    result: dict = {}
-
-    title_el = soup.select_one("h2, .page-header-headings h1")
-    if title_el:
-        result["title"] = title_el.get_text(strip=True)
-
-    intro = soup.select_one(".intro, .activity-description, .assignmentintro, .mod-description")
-    if intro:
-        result["description"] = intro.get_text(strip=True)
-
-    files = []
-    for a in soup.select("a[href*='pluginfile']"):
-        name = a.get_text(strip=True)
-        href = a.get("href", "")
-        if name and href:
-            files.append({"name": name, "url": href})
-    if files:
-        result["files"] = files
-
-    if "/mod/url/" in path:
-        for a in soup.select(".urlworkaround a, .resourceworkaround a"):
-            result["external_url"] = a.get("href", "")
-            break
-
-    if "/mod/folder/" in path:
-        folder_files = []
-        for a in soup.select(".fp-filename-icon a, .foldertree a[href*='pluginfile']"):
-            name = a.get_text(strip=True)
-            href = a.get("href", "")
-            if name and href:
-                folder_files.append({"name": name, "url": href})
-        if folder_files:
-            result["files"] = folder_files
-
-    if "/mod/assign/" in path:
-        for row in soup.select(".submissionstatustable tr, .generaltable tr"):
-            cells = row.select("td")
-            if len(cells) >= 2:
-                label = cells[0].get_text(strip=True).lower()
-                value = cells[1].get_text(strip=True)
-                if "due" in label:
-                    result["due_date"] = value
-                elif "status" in label and "submission" in label:
-                    result["submission_status"] = value
-                elif "grading" in label and "status" in label:
-                    result["grading_status"] = value
-                elif "grade" in label and "status" not in label:
-                    result["grade"] = value
-
-    return json.dumps(result, indent=2)
+        raise ToolError("Invalid path")
+    filepath = os.path.join(DOWNLOADS_DIR, path)
+    if not os.path.exists(filepath):
+        raise ToolError(f"Not found: {path}")
+    blocks = file_to_content(filepath, pages=pages)
+    blocks.extend(_delivery_blocks(filepath, ctx))
+    return blocks
