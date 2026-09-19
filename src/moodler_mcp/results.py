@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,9 +11,11 @@ from moodler_mcp.config import LOCAL_FILE_CLIENTS
 
 
 def result(summary: str, data: BaseModel) -> Any:
+    payload = data.model_dump(mode="json")
+    text = f"{summary}\n{json.dumps(payload, ensure_ascii=False)}"
     return CallToolResult(
-        content=[TextContent(type="text", text=summary)],
-        structured_content=data.model_dump(mode="json"),
+        content=[TextContent(type="text", text=text)],
+        structured_content=payload,
     )
 
 
