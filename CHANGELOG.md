@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.5.0...v1.0.0) (2026-09-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* token auth, rest api, sdk 2 and expanded tools ([#36](https://github.com/GhaithAlHallak8/moodler-mcp/issues/36))
+
+### Features
+
+* token auth, rest api, sdk 2 and expanded tools ([#36](https://github.com/GhaithAlHallak8/moodler-mcp/issues/36)) ([1cfb6b7](https://github.com/GhaithAlHallak8/moodler-mcp/commit/1cfb6b7f64613e46e179c28c9188aa1e9eafeae4))
+
+
+### Documentation
+
+* remove weird remove emoji ([cef74d0](https://github.com/GhaithAlHallak8/moodler-mcp/commit/cef74d0d13938c3763ba0f3f7a3100e27aa56091))
+
 ## [0.5.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v0.4.0...v0.5.0) (2026-04-12)
 
 
