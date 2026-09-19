@@ -34,3 +34,4 @@ MOBILE_SERVICE = "moodle_mobile_app"
 EMBED_LIMIT_BYTES = 700_000
 EMBED_FILES = os.environ.get("MOODLER_EMBED_FILES", "local").strip().lower()
 LOCAL_FILE_CLIENTS = ("claude-code", "claude code", "codex", "chatgpt")
+NO_EMBED_CLIENTS = ("claude-ai",)
