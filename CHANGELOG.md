@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v1.1.0...v1.1.1) (2026-09-19)
+
+
+### Bug Fixes
+
+* never attach files for clients that reject embedded resources ([#41](https://github.com/GhaithAlHallak8/moodler-mcp/issues/41)) ([b9e6935](https://github.com/GhaithAlHallak8/moodler-mcp/commit/b9e693543e10294f9f5c194cbd9dcccf25934680))
+
 ## [1.1.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v1.0.1...v1.1.0) (2026-09-19)
 
 
