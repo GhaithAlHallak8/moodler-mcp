@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v1.0.1...v1.1.0) (2026-09-19)
+
+
+### Features
+
+* configurable file embedding for clients without local file access ([#39](https://github.com/GhaithAlHallak8/moodler-mcp/issues/39)) ([1500db8](https://github.com/GhaithAlHallak8/moodler-mcp/commit/1500db812bb83d0621b6a61ea5d1e8300abc5ca5))
+
 ## [1.0.1](https://github.com/GhaithAlHallak8/moodler-mcp/compare/v1.0.0...v1.0.1) (2026-09-19)
 
 
