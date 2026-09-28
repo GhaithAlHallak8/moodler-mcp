@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import contextlib
 import hashlib
@@ -109,13 +110,43 @@ def _decode_app_token(url: str, passport: str) -> tuple[str, str | None]:
     return parts[1], parts[2] if len(parts) > 2 else None
 
 
+_IDP_SELECTORS = (
+    "a.login-identityprovider-btn",
+    ".potentialidplist a",
+    "a[href*='authCAS=']",
+)
+
+
+async def _click_single_idp(page: Any) -> bool:
+    """On a login page with exactly one identity provider (e.g. a CAS button), click it.
+
+    launch.php sends the user through require_login(); sites whose SSO is an
+    optional button rather than an automatic redirect would otherwise stall here.
+    """
+    for selector in _IDP_SELECTORS:
+        with contextlib.suppress(Exception):
+            links = await page.query_selector_all(selector)
+            if len(links) == 1:
+                await links[0].click()
+                return True
+    return False
+
+
+async def _launch_link(page: Any) -> str | None:
+    # iOS user agents / confirmed launches get an HTML page with a link instead of a redirect.
+    with contextlib.suppress(Exception):
+        href = await page.get_attribute("#launchapp", "href", timeout=500)
+        if href and href.startswith("moodlemobile://"):
+            return href
+    return None
+
+
 async def _acquire_tokens(context: Any, page: Any) -> tuple[str, str | None]:
     """Fetch a web service token via the mobile-app launch flow.
 
-    Moodle only includes a private token when the request is over HTTPS and the
-    user is not a site admin, and some sites never send one. The private token
-    is only needed for web-session autologin, so a token without one is still
-    accepted; we just retry once in case a private token shows up.
+    Moodle only includes a private token when the user has just logged in, the
+    request is over HTTPS and the user is not a site admin. The private token is
+    only needed for web-session autologin, so a token without one is accepted.
     """
     captured: list[str] = []
     fallback: str | None = None
@@ -125,6 +156,7 @@ async def _acquire_tokens(context: Any, page: Any) -> tuple[str, str | None]:
             captured.append(req.url)
 
     page.on("request", on_request)
+    page.on("requestfailed", on_request)
     try:
         for _ in range(2):
             await context.clear_cookies(name="MoodleSession")
@@ -136,16 +168,35 @@ async def _acquire_tokens(context: Any, page: Any) -> tuple[str, str | None]:
             )
             with contextlib.suppress(Exception):
                 await page.goto(launch, wait_until="networkidle", timeout=60_000)
+            # Clearing the session forces a fresh login. If the site shows a login page
+            # instead of redirecting to SSO, click its single identity provider and wait
+            # (or let the user finish signing in) until Moodle hands back the token.
+            deadline = time.monotonic() + BOOTSTRAP_TIMEOUT_MS / 1000
+            clicked = False
+            while not captured and time.monotonic() < deadline:
+                link = await _launch_link(page)
+                if link:
+                    captured.append(link)
+                    break
+                if not clicked and "/login/" in page.url:
+                    clicked = await _click_single_idp(page)
+                await asyncio.sleep(0.5)
             if captured:
                 token, private = _decode_app_token(captured[0], passport)
                 if private:
                     return token, private
                 fallback = token
+            if fallback is not None:
+                break
     finally:
         page.remove_listener("request", on_request)
+        page.remove_listener("requestfailed", on_request)
     if fallback is not None:
         return fallback, None
-    raise ToolError("Moodle did not return a web service token. Run login_to_moodle again.")
+    raise ToolError(
+        "Moodle did not return a web service token. The sign-in window may have been "
+        "closed before Moodle finished; run login_to_moodle again."
+    )
 
 
 async def _site_info(token: str) -> dict[str, Any]:
