@@ -18,6 +18,11 @@ def _lockout_message(message: str) -> str:
 
 async def _acquire() -> httpx.Cookies:
     session = load_session()
+    if not session.privatetoken:
+        raise ToolError(
+            "This Moodle site did not issue a private token at sign-in, so pages that need "
+            "a browser session are unavailable. Web service tools still work."
+        )
     async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": APP_USER_AGENT}) as app:
         resp = await app.post(
             f"{MOODLE_URL}/webservice/rest/server.php",
