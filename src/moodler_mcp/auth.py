@@ -46,7 +46,7 @@ class LoginRequired(ToolError):
 @dataclass(frozen=True)
 class Session:
     token: str
-    privatetoken: str
+    privatetoken: str | None
     userid: int
     username: str
     site_release: str
@@ -109,8 +109,16 @@ def _decode_app_token(url: str, passport: str) -> tuple[str, str | None]:
     return parts[1], parts[2] if len(parts) > 2 else None
 
 
-async def _acquire_tokens(context: Any, page: Any) -> tuple[str, str]:
+async def _acquire_tokens(context: Any, page: Any) -> tuple[str, str | None]:
+    """Fetch a web service token via the mobile-app launch flow.
+
+    Moodle only includes a private token when the request is over HTTPS and the
+    user is not a site admin, and some sites never send one. The private token
+    is only needed for web-session autologin, so a token without one is still
+    accepted; we just retry once in case a private token shows up.
+    """
     captured: list[str] = []
+    fallback: str | None = None
 
     def on_request(req: Any) -> None:
         if req.url.startswith("moodlemobile://"):
@@ -132,9 +140,12 @@ async def _acquire_tokens(context: Any, page: Any) -> tuple[str, str]:
                 token, private = _decode_app_token(captured[0], passport)
                 if private:
                     return token, private
+                fallback = token
     finally:
         page.remove_listener("request", on_request)
-    raise ToolError("Moodle issued a token without a private token. Run login_to_moodle again.")
+    if fallback is not None:
+        return fallback, None
+    raise ToolError("Moodle did not return a web service token. Run login_to_moodle again.")
 
 
 async def _site_info(token: str) -> dict[str, Any]:
