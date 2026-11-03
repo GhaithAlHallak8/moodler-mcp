@@ -118,6 +118,10 @@ The first time you use any tool, it tells you to run `login_to_moodle`. That too
 
 Every tool afterwards calls Moodle's REST web service with that token. No cookies, no session key, no HTML scraping. Pages that only exist as HTML use a one-off autologin key that Moodle rate-limits to one per six minutes.
 
+Single sign-on doesn't have to be an automatic redirect. If your Moodle login page shows a single sign-in button instead (for example a CAS or "institution account" button), `login_to_moodle` clicks it for you and waits up to three minutes for you to finish signing in. If the page offers several providers, pick yours in the browser window and it carries on from there.
+
+Some Moodle sites don't include the optional *private token* with the web service token. Sign-in still succeeds and every web service tool works; only the HTML autologin fallback above is unavailable on those sites.
+
 The token stays valid until you reset it under Moodle's **Security keys** page or an administrator sets a token lifetime. If it is revoked, tools report that you are not signed in and you run `login_to_moodle` again.
 
 This means it works anywhere your account works: if your institution has the Moodle mobile app enabled (almost all do), no permissions need to be requested and no admin needs to be emailed.
@@ -138,7 +142,7 @@ Flags accept `1`, `true` or `yes`. Tools behind a disabled flag are not register
 
 All local state is under `~/.moodler-mcp/`:
 
-- `token.json` — your Moodle web service token and private token, owner-readable only.
+- `token.json` — your Moodle web service token (and private token, when Moodle issues one), owner-readable only.
 - `cache.db` — SQLite cache of Moodle API responses. See [caching](#caching).
 - `downloads/` — files fetched by `download_resource`. Exposed back to the MCP client as `downloads://<filename>` resources.
 
