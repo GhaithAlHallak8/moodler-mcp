@@ -3,6 +3,7 @@ import html
 import mimetypes
 import os
 import zipfile
+from pathlib import PurePath
 from typing import Annotated
 from urllib.parse import parse_qs, urlparse
 
@@ -389,7 +390,8 @@ async def read_downloaded_file(
         path: Relative path under the downloads dir from a zip listing
         pages: 1-indexed selection like '1-5,7' for PDF pages, slides or sheets
     """
-    if ".." in path or path.startswith("/"):
+    # anchor also covers C:\x, \x and \\host\share\x on Windows, checked before touching disk
+    if ".." in path or PurePath(path).anchor:
         raise ToolError("Invalid path")
     filepath = os.path.join(DOWNLOADS_DIR, path)
     if not os.path.exists(filepath):
